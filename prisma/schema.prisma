@@ -1,0 +1,267 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  MODERATOR
+  PRINCIPAL
+  VICE_PRINCIPAL
+  TEACHER
+  ASSISTANT_TEACHER
+  COUNSELOR
+  LIBRARIAN
+  EXAM_OFFICER
+  FINANCE
+  HR
+  RECEPTIONIST
+  IT_SUPPORT
+  TRANSPORT
+  NURSE
+  COOK
+  CLEANER
+  SECURITY
+  MAINTENANCE
+  STUDENT
+  CLASS_REP
+  PARENT
+  ALUMNI
+  AUDITOR
+}
+
+enum FinanceType {
+  INCOME
+  EXPENSE
+}
+
+enum FeeType {
+  TUITION
+  EXAM
+  LAB
+  SPORTS
+  LIBRARY
+  TRANSPORT
+  UNIFORM
+  OTHER
+}
+
+enum AttendanceStatus {
+  PRESENT
+  ABSENT
+  LATE
+  EXCUSED
+}
+
+model School {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  address   String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users      User[]
+  classes    Class[]
+  buses      Bus[]
+  finances   Finance[]
+  activities Activity[]
+  resources  Resource[]
+}
+
+model User {
+  id        String   @id @default(cuid())
+  name      String
+  email     String   @unique
+  password  String
+  role      Role
+  schoolId  String
+  school    School   @relation(fields: [schoolId], references: [id])
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  student Student?
+  staff   Staff?
+}
+
+model Class {
+  id        String    @id @default(cuid())
+  name      String
+  schoolId  String
+  school    School    @relation(fields: [schoolId], references: [id])
+  students  Student[]
+  staff     Staff[]
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@unique([name, schoolId])
+}
+
+model Student {
+  id         String   @id @default(cuid())
+  userId     String   @unique
+  user       User     @relation(fields: [userId], references: [id])
+  classId    String?
+  class      Class?   @relation(fields: [classId], references: [id])
+  enrolledAt DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  exams        Exam[]
+  parents      Parent[]
+  transactions Transaction[]
+  purchases    Purchase[]
+  attendances  StudentAttendance[]
+}
+
+model Staff {
+  id           String      @id @default(cuid())
+  userId       String      @unique
+  user         User        @relation(fields: [userId], references: [id])
+  classId      String?
+  class        Class?      @relation(fields: [classId], references: [id])
+  position     String?
+  departmentId String?
+  department   Department? @relation(fields: [departmentId], references: [id])
+  salary       Float?
+  subject      String?
+  hireDate     DateTime?
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  attendances StaffAttendance[]
+}
+
+model Department {
+  id    String  @id @default(cuid())
+  name  String  @unique
+  staff Staff[]
+}
+
+model StudentAttendance {
+  id        String           @id @default(cuid())
+  studentId String
+  student   Student          @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  date      DateTime         @default(now())
+  status    AttendanceStatus
+  timeIn    DateTime?
+  timeOut   DateTime?
+  remarks   String?
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+
+  @@unique([studentId, date], name: "studentId_date")
+}
+
+model StaffAttendance {
+  id        String           @id @default(cuid())
+  staffId   String
+  staff     Staff            @relation(fields: [staffId], references: [id], onDelete: Cascade)
+  date      DateTime         @default(now())
+  status    AttendanceStatus
+  timeIn    DateTime?
+  timeOut   DateTime?
+  remarks   String?
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+}
+
+model Parent {
+  id        String   @id @default(cuid())
+  studentId String
+  student   Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  name      String
+  email     String   @unique
+  phone     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Exam {
+  id        String   @id @default(cuid())
+  studentId String
+  student   Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  subject   String
+  score     Float
+  maxScore  Float
+  date      DateTime @default(now())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Transaction {
+  id          String      @id @default(cuid())
+  studentId   String
+  student     Student     @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  type        FinanceType @default(INCOME)
+  feeType     FeeType?
+  amount      Float
+  date        DateTime    @default(now())
+  description String?
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+}
+
+model Finance {
+  id          String      @id @default(cuid())
+  schoolId    String
+  school      School      @relation(fields: [schoolId], references: [id])
+  type        FinanceType @default(INCOME)
+  amount      Float
+  description String?
+  date        DateTime    @default(now())
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+}
+
+model Resource {
+  id        String   @id @default(cuid())
+  name      String
+  category  String?
+  unitPrice Float
+  quantity  Int      @default(1)
+  schoolId  String
+  school    School   @relation(fields: [schoolId], references: [id])
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  purchases Purchase[]
+
+  @@unique([name, schoolId])
+}
+
+model Purchase {
+  id         String   @id @default(cuid())
+  studentId  String
+  student    Student  @relation(fields: [studentId], references: [id])
+  resourceId String
+  resource   Resource @relation(fields: [resourceId], references: [id])
+  quantity   Int      @default(1)
+  totalCost  Float
+  date       DateTime @default(now())
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+model Activity {
+  id          String   @id @default(cuid())
+  title       String
+  description String?
+  schoolId    String
+  school      School   @relation(fields: [schoolId], references: [id])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Bus {
+  id          String   @id @default(cuid())
+  schoolId    String
+  school      School   @relation(fields: [schoolId], references: [id])
+  plateNumber String   @unique
+  driverName  String
+  capacity    Int
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}

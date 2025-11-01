@@ -1,0 +1,62 @@
+@import "tailwindcss";
+
+
+/* --- Ford School Colors --- */
+:root {
+  --ford-primary: #3f0101;
+  --ford-secondary: #820000;
+  --ford-card: #29051c;
+  --background: #99aac9;
+  --neutral-dark: #44001f;
+  --typo: #e1f5ff;
+  --success: #16a34a;
+  --warning: #facc15;
+}
+
+/* --- Global Defaults --- */
+body {
+  background-color: var(--background);
+  color: var(--typo);
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+/* --- Text Colors --- */
+.text-ford-primary { color: var(--ford-primary) !important; }
+.text-ford-secondary { color: var(--ford-secondary) !important; }
+.text-ford-card { color: var(--ford-card) !important; }
+.text-ford-typo { color: var(--typo) !important; }
+.text-neutral-dark { color: var(--neutral-dark) !important; }
+.text-success { color: var(--success) !important; }
+.text-warning { color: var(--warning) !important; }
+
+/* --- Background Colors --- */
+.bg-ford-primary { background-color: var(--ford-primary) !important; }
+.bg-ford-secondary { background-color: var(--ford-secondary) !important; }
+.bg-ford-card { background-color: var(--ford-card) !important; }
+.bg-background { background-color: var(--background) !important; }
+.bg-success { background-color: var(--success) !important; }
+.bg-warning { background-color: var(--warning) !important; }
+
+/* --- Border Colors --- */
+.border-ford-primary { border-color: var(--ford-primary) !important; }
+.border-ford-secondary { border-color: var(--ford-secondary) !important; }
+.border-ford-card { border-color: var(--ford-card) !important; }
+.border-success { border-color: var(--success) !important; }
+.border-warning { border-color: var(--warning) !important; }
+
+/* --- Hover Variants --- */
+.hover\:text-ford-primary:hover { color: var(--ford-primary) !important; }
+.hover\:text-ford-secondary:hover { color: var(--ford-secondary) !important; }
+.hover\:text-ford-card:hover { color: var(--ford-card) !important; }
+.hover\:text-ford-typo:hover { color: var(--typo) !important; }
+.hover\:text-success:hover { color: var(--success) !important; }
+.hover\:text-warning:hover { color: var(--warning) !important; }
+
+.hover\:bg-ford-primary:hover { background-color: var(--ford-primary) !important; }
+.hover\:bg-ford-secondary:hover { background-color: var(--ford-secondary) !important; }
+.hover\:bg-ford-card:hover { background-color: var(--ford-card) !important; }
+.hover\:bg-success:hover { background-color: var(--success) !important; }
+.hover\:bg-warning:hover { background-color: var(--warning) !important; }
+
+.focus\:border-ford-primary:focus { border-color: var(--ford-primary) !important; }
+.focus\:border-success:focus { border-color: var(--success) !important; }

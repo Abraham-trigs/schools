@@ -1,9 +1,12 @@
 // app/store/useStaffStore.ts
-// Purpose: Enhanced Zustand store for Staff management with pagination, debounced search, optimistic updates, and mobile-friendly data handling.
+// Purpose: Zustand store for Staff management with centralized class data from useClassesStore
+
+"use client";
 
 import { create } from "zustand"; 
 import { debounce } from "lodash";
 import { apiClient } from "@/lib/apiClient.ts"; 
+import { useClassesStore } from "./useClassesStore"; // <-- centralized class store
 
 export interface Staff {
   id: string;
@@ -55,7 +58,6 @@ interface StaffState {
   updateStaff: (id: string, data: Partial<Staff>) => void;
   deleteStaff: (id: string) => void;
 
-  // Derived data
   totalPages: () => number;
 }
 
@@ -76,7 +78,6 @@ export const useStaffStore = create<StaffState>((set, get) => {
 
     setPage: (page) => set({ page }),
     setPerPage: (perPage) => set({ perPage }),
-
     setSearch: (search: string) => {
       set({ search });
       fetchStaffDebounced(1, search);

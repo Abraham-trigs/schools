@@ -31,23 +31,29 @@ export default function SummaryCard({
       animate={{ opacity: 1, y: 0 }}
       whileHover={{ scale: 1.05 }}
       transition={{ type: "spring", stiffness: 300 }}
-      className={`relative p-4 rounded-lg shadow-lg flex items-center justify-between gap-4 cursor-pointer ${colorClass || "bg-ford-primary"}`}
+      className={`relative p-4 rounded-lg shadow-lg flex items-center justify-between gap-4 cursor-pointer ${
+        colorClass || "bg-ford-primary"
+      }`}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
       {/* Icon + Text */}
       <div className="flex items-center gap-4">
-        {Icon && <Icon className="w-8 h-8 text-white" />}
+        {Icon && <Icon className="w-8 h-8 text-cc" />}
         <div>
-          <p className="text-white/80 text-sm">{title}</p>
-          <p className="text-white font-bold text-xl">{value}</p>
+          <p className="text-ford-primary text-sm">{title}</p>
+          <p className="text-red-600 font-bold text-xl">{value}</p>
           {subtitle && <p className="text-white/60 text-xs">{subtitle}</p>}
         </div>
       </div>
 
       {/* Trend */}
       {trend !== undefined && (
-        <div className={`text-xs font-semibold ${trend >= 0 ? "text-success" : "text-red-500"}`}>
+        <div
+          className={`text-xs font-semibold ${
+            trend >= 0 ? "text-success" : "text-red-500"
+          }`}
+        >
           {trend >= 0 ? "↑" : "↓"} {Math.abs(trend)}%
         </div>
       )}
@@ -56,7 +62,13 @@ export default function SummaryCard({
       {hovered && (
         <div className="absolute top-0 left-1/2 transform -translate-x-1/2 -translate-y-full bg-white text-black text-sm px-3 py-1 rounded shadow-lg whitespace-nowrap z-50">
           Total: {value}
-          {trend !== undefined && <> ({trend >= 0 ? "+" : "-"}{Math.abs(trend)}%)</>}
+          {trend !== undefined && (
+            <>
+              {" "}
+              ({trend >= 0 ? "+" : "-"}
+              {Math.abs(trend)}%)
+            </>
+          )}
         </div>
       )}
     </motion.div>

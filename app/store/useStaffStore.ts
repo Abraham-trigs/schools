@@ -1,18 +1,18 @@
 // app/store/useStaffStore.ts
-// Purpose: Zustand store for Staff management with centralized class data from useClassesStore
+// Purpose: Zustand store for Staff management with centralized class data and selectedStaff for detail pages.
 
 "use client";
 
-import { create } from "zustand"; 
+import { create } from "zustand";
 import { debounce } from "lodash";
-import { apiClient } from "@/lib/apiClient.ts"; 
-import { useClassesStore } from "./useClassesStore"; // <-- centralized class store
+import { apiClient } from "@/lib/apiClient.ts";
+import { useClassesStore } from "./useClassesStore";
 
 export interface Staff {
   id: string;
   userId: string;
-  user: { id: string; name: string; email: string };
-  class?: { id: string; name: string } | null;
+  user: { id: string; name: string; email: string; phone?: string };
+  class?: { id: string; name: string; students?: any[] } | null;
   department?: { id: string; name } | null;
   position?: string | null;
   salary?: number | null;
@@ -39,6 +39,7 @@ interface StaffPayload {
 
 interface StaffState {
   staffList: Staff[];
+  selectedStaff: Staff | null;
   total: number;
   page: number;
   perPage: number;
@@ -51,8 +52,10 @@ interface StaffState {
   setPerPage: (perPage: number) => void;
   setSearch: (search: string) => void;
 
+  setSelectedStaff: (staff: Staff | null) => void;
   fetchStaff: (page?: number, search?: string) => Promise<void>;
   fetchStaffDebounced: (page?: number, search?: string) => void;
+  fetchStaffById: (id: string) => Promise<Staff | null>;
 
   createStaff: (user: UserPayload, staff: StaffPayload) => Promise<Staff | null>;
   updateStaff: (id: string, data: Partial<Staff>) => void;
@@ -68,6 +71,7 @@ export const useStaffStore = create<StaffState>((set, get) => {
 
   return {
     staffList: [],
+    selectedStaff: null,
     total: 0,
     page: 1,
     perPage: 10,
@@ -84,19 +88,19 @@ export const useStaffStore = create<StaffState>((set, get) => {
       set({ page: 1 });
     },
 
+    setSelectedStaff: (staff) => set({ selectedStaff: staff }),
+
     fetchStaff: async (page = get().page, search = get().search) => {
       const cached = get().cache[page];
       if (cached && search === "") {
         set({ staffList: cached, page });
         return;
       }
-
       set({ loading: true, error: null });
       try {
         const data = await apiClient<{ staffList: Staff[]; total: number; page: number }>(
           `/api/staff?search=${encodeURIComponent(search)}&page=${page}&perPage=${get().perPage}`
         );
-
         set((state) => ({
           staffList: data.staffList,
           total: data.total,
@@ -112,6 +116,31 @@ export const useStaffStore = create<StaffState>((set, get) => {
 
     fetchStaffDebounced,
 
+    fetchStaffById: async (id: string) => {
+      set({ loading: true, error: null });
+      try {
+        // first try finding in list
+        const existing = get().staffList.find((s) => s.id === id);
+        if (existing) {
+          set({ selectedStaff: existing });
+          return existing;
+        }
+
+        const fetched = await apiClient<Staff>(`/api/staff/${id}`);
+        set({ selectedStaff: fetched });
+        // Optionally add to list/cache for consistency
+        set((state) => ({
+          staffList: [fetched, ...state.staffList.filter((s) => s.id !== id)],
+        }));
+        return fetched;
+      } catch (err: any) {
+        set({ error: err?.message || "Failed to fetch staff by id" });
+        return null;
+      } finally {
+        set({ loading: false });
+      }
+    },
+
     createStaff: async (userPayload: UserPayload, staffPayload: StaffPayload) => {
       set({ loading: true, error: null });
       try {
@@ -119,12 +148,10 @@ export const useStaffStore = create<StaffState>((set, get) => {
           method: "POST",
           body: JSON.stringify({ ...userPayload, ...staffPayload }),
         });
-
         set((state) => ({
           staffList: [newStaff, ...state.staffList],
           total: state.total + 1,
         }));
-
         return newStaff;
       } catch (err: any) {
         set({ error: err?.error?.message || err?.message || "Failed to create staff" });
@@ -135,20 +162,30 @@ export const useStaffStore = create<StaffState>((set, get) => {
     },
 
     updateStaff: (id, data) => {
-      set((state) => ({
-        staffList: state.staffList.map((s) => (s.id === id ? { ...s, ...data } : s)),
-        cache: Object.fromEntries(
-          Object.entries(state.cache).map(([k, list]) => [
-            k,
-            list.map((s) => (s.id === id ? { ...s, ...data } : s)),
-          ])
-        ),
-      }));
+      set((state) => {
+        const updatedList = state.staffList.map((s) => (s.id === id ? { ...s, ...data } : s));
+        const updatedSelected = state.selectedStaff?.id === id ? { ...state.selectedStaff, ...data } : state.selectedStaff;
+        return {
+          staffList: updatedList,
+          selectedStaff: updatedSelected || null,
+          cache: Object.fromEntries(
+            Object.entries(state.cache).map(([k, list]) => [
+              k,
+              list.map((s) => (s.id === id ? { ...s, ...data } : s)),
+            ])
+          ),
+        };
+      });
     },
 
-    deleteStaff: (id) => {
+  deleteStaff: async (id: string, onDeleted?: () => void) => {
+  set({ loading: true, error: null });
+  try {
+    const res = await apiClient(`/api/staff/${id}`, { method: "DELETE" });
+    if (res.success) {
       set((state) => ({
         staffList: state.staffList.filter((s) => s.id !== id),
+        selectedStaff: state.selectedStaff?.id === id ? null : state.selectedStaff,
         total: state.total - 1,
         cache: Object.fromEntries(
           Object.entries(state.cache).map(([k, list]) => [
@@ -157,7 +194,18 @@ export const useStaffStore = create<StaffState>((set, get) => {
           ])
         ),
       }));
-    },
+      if (onDeleted) onDeleted();
+    } else {
+      set({ error: res.error?.message || "Failed to delete staff" });
+    }
+  } catch (err: any) {
+    set({ error: err?.message || "Failed to delete staff" });
+  } finally {
+    set({ loading: false });
+  }
+},
+
+
 
     totalPages: () => Math.ceil(get().total / get().perPage),
   };

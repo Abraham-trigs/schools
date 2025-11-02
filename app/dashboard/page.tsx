@@ -3,7 +3,7 @@ import ChartCard from "./components/ChartCard";
 import RecentActivity from "./components/RecentActivity";
 import { prisma } from "@/lib/db";
 
-// ✅ Client Components
+// Client Components
 import StudentsPerClassChart from "./components/StudentsPerClassChart";
 import AttendanceTrendChart from "./components/AttendanceTrendChart";
 
@@ -27,28 +27,35 @@ export default async function DashboardPage() {
     {
       title: "Students",
       value: students,
-      colorClass: "bg-ford-primary",
+      colorClass:
+        "bg-white/10 backdrop-blur-3xl border border-white/90 shadow-xl supports-[backdrop-filter]:bg-[#ffffff]/7 supports-[backdrop-filter]:backdrop-blur-md transition-all duration-300 hover:bg-ford-",
+
       icon: "Users",
       trend: calcTrend(students, prevStudents),
     },
     {
       title: "Teachers",
       value: teachers,
-      colorClass: "bg-ford-secondary",
+      colorClass:
+        "bg-white/10 backdrop-blur-3xl border border-white/90 shadow-xl supports-[backdrop-filter]:bg-[#ffffff]/7 supports-[backdrop-filter]:backdrop-blur-md transition-all duration-300 hover:bg-ford-",
+
       icon: "User",
       trend: calcTrend(teachers, prevTeachers),
     },
     {
       title: "Classes",
       value: classes,
-      colorClass: "bg-success",
+      colorClass:
+        "bg-white/10 backdrop-blur-3xl border border-white/90 shadow-xl supports-[backdrop-filter]:bg-[#ffffff]/7 supports-[backdrop-filter]:backdrop-blur-md transition-all duration-300 hover:bg-",
       icon: "BookOpen",
       trend: calcTrend(classes, prevClasses),
     },
     {
       title: "Parents",
       value: parents,
-      colorClass: "bg-warning",
+      colorClass:
+        "bg-white/10 backdrop-blur-3xl border border-white/90 shadow-2xl supports-[backdrop-filter]:bg-[#ffffff]/7 supports-[backdrop-filter]:backdrop-blur-md transition-all duration-300 hover:bg-",
+
       icon: "Users2",
       trend: calcTrend(parents, prevParents),
     },
@@ -88,7 +95,7 @@ export default async function DashboardPage() {
 
   return (
     <div className="space-y-6 ">
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mt-12">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mt-12 ">
         {summary.map((card) => (
           <SummaryCard
             key={card.title}

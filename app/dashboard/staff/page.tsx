@@ -1,15 +1,17 @@
 // app/staff/page.tsx
-// Purpose: Responsive Staff Management page with Add/Edit/Delete modals, unified modal contracts.
+// Purpose: Responsive Staff Management page with Add/Edit/Delete modals and click-to-view staff detail.
 
 "use client";
 
 import React, { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import AddStaffModal from "./components/AddStaffModal";
 import EditStaffModal from "./components/EditStaffModal";
 import ConfirmDeleteModal from "./components/ConfirmDeleteModal";
 import { useStaffStore, Staff } from "@/app/store/useStaffStore";
 
 export default function StaffPage() {
+  const router = useRouter();
   const {
     staffList,
     page,
@@ -32,7 +34,8 @@ export default function StaffPage() {
   }, [page, search, fetchStaffDebounced]);
 
   // --- Edit Handlers ---
-  const handleEditClick = (staff: Staff) => {
+  const handleEditClick = (e: React.MouseEvent, staff: Staff) => {
+    e.stopPropagation();
     setSelectedStaff(staff);
     setIsEditOpen(true);
   };
@@ -43,12 +46,18 @@ export default function StaffPage() {
   };
 
   // --- Delete Handlers ---
-  const handleDeleteClick = (staff: Staff) => {
+  const handleDeleteClick = (e: React.MouseEvent, staff: Staff) => {
+    e.stopPropagation();
     setSelectedToDelete(staff);
   };
 
   const closeDelete = () => {
     setSelectedToDelete(null);
+  };
+
+  // --- Navigation ---
+  const goToDetail = (id: string) => {
+    router.push(`/dashboard/staff/${id}`);
   };
 
   return (
@@ -96,7 +105,8 @@ export default function StaffPage() {
                 {staffList.map((staff) => (
                   <tr
                     key={staff.id}
-                    className="hover:bg-gray-50 transition-colors"
+                    onClick={() => goToDetail(staff.id)}
+                    className="hover:bg-blue-50 cursor-pointer transition-colors"
                   >
                     <td className="border px-3 py-2">{staff.user.name}</td>
                     <td className="border px-3 py-2 break-words">
@@ -110,13 +120,13 @@ export default function StaffPage() {
                     </td>
                     <td className="border px-3 py-2 flex gap-2 flex-wrap">
                       <button
-                        onClick={() => handleEditClick(staff)}
+                        onClick={(e) => handleEditClick(e, staff)}
                         className="text-blue-600 hover:underline focus:outline-none focus:ring-2 focus:ring-blue-400 px-2 py-1 rounded"
                       >
                         Edit
                       </button>
                       <button
-                        onClick={() => handleDeleteClick(staff)}
+                        onClick={(e) => handleDeleteClick(e, staff)}
                         className="text-red-600 hover:underline focus:outline-none focus:ring-2 focus:ring-red-400 px-2 py-1 rounded"
                       >
                         Delete
@@ -133,7 +143,8 @@ export default function StaffPage() {
             {staffList.map((staff) => (
               <div
                 key={staff.id}
-                className="border rounded p-3 shadow-sm hover:shadow-md transition-shadow bg-white"
+                onClick={() => goToDetail(staff.id)}
+                className="border rounded p-3 shadow-sm hover:shadow-md transition-shadow bg-white cursor-pointer"
               >
                 <div className="flex justify-between items-start mb-2">
                   <div>
@@ -144,13 +155,13 @@ export default function StaffPage() {
                   </div>
                   <div className="flex gap-2">
                     <button
-                      onClick={() => handleEditClick(staff)}
+                      onClick={(e) => handleEditClick(e, staff)}
                       className="text-blue-600 hover:underline focus:outline-none focus:ring-2 focus:ring-blue-400 px-2 py-1 rounded text-sm"
                     >
                       Edit
                     </button>
                     <button
-                      onClick={() => handleDeleteClick(staff)}
+                      onClick={(e) => handleDeleteClick(e, staff)}
                       className="text-red-600 hover:underline focus:outline-none focus:ring-2 focus:ring-red-400 px-2 py-1 rounded text-sm"
                     >
                       Delete

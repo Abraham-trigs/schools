@@ -105,10 +105,11 @@ export default function Topbar() {
   return (
     <header
       style={style}
+      // supports-[backdrop-filter]:bg-[#a50b0b]/20 shadow-md hover:bg-[#570404] bg-white/10 border-b border-white/20 backdrop-blur-3xl supports-[backdrop-filter]:backdrop-blur-md
       className="fixed top-0 right-0 z-50 flex items-center justify-between
                  px-4 py-3 text-white
-                 bg-white/10 backdrop-blur-xl border-b border-white/20 shadow-md
-                 supports-[backdrop-filter]:bg-white/10 supports-[backdrop-filter]:backdrop-blur-md
+                   
+                 
                  transition-all duration-300"
     >
       <button
@@ -119,21 +120,21 @@ export default function Topbar() {
         <Menu className="w-5 h-5" />
       </button>
 
-      <div className="text-lg font-semibold tracking-wide truncate">
-        Dashboard
+      <div className="text- font- tracking-wide truncate p-3 py-1 rounded-xl bg-ford-">
+        {/* Dashboard */}
       </div>
 
-      <div className="flex items-center gap-4 relative">
+      <div className=" hover:supports-[backdrop-filter]:bg-ford-secondary hover:supports-[backdrop-filter]:backdrop-blur-md hover:transition-all duration-1000 flex items-center gap-4 relative rounded-2xl px-3  backdrop-blur-3xl  hover:shadow-xl">
         {/* Notifications */}
         <div className="relative" ref={notifRef}>
           <button
             aria-label="Notifications"
             onClick={toggleNotifications}
-            className="relative p-2 rounded hover:bg-ford-secondary transition-colors"
+            className="relative p-2 rounded hover:bg-ford- transition-colors"
           >
-            <Bell className="w-5 h-5" />
+            <Bell className="w-5 h-5 text-ford-secondary " />
             {unreadCount() > 0 && (
-              <span className="absolute -top-1 -right-1 w-4 h-4 bg-warning text-white text-xs rounded-full flex items-center justify-center font-bold">
+              <span className="absolute -top-1 -right-1 w-4 h-4 bg-ford-secondary text-white text-xs rounded-full flex items-center justify-center font-">
                 {unreadCount()}
               </span>
             )}
@@ -141,16 +142,16 @@ export default function Topbar() {
 
           <div
             className={clsx(
-              "absolute right-0 mt-2 w-72 max-h-80 bg-white text-black rounded shadow-lg border border-ford-secondary overflow-y-auto transition-all duration-200 origin-top",
+              "absolute right-0 mt-2 w-72 max-h-80 bg-ford-primary text- rounded shadow-lg border-ford-secondary overflow-y-auto transition-all duration-200 origin-top",
               notificationsOpen
                 ? "opacity-100 scale-100 translate-y-0 pointer-events-auto"
                 : "opacity-0 scale-95 -translate-y-2 pointer-events-none"
             )}
           >
-            <div className="flex justify-between items-center px-4 py-2 border-b border-gray-200">
-              <span className="font-semibold text-gray-700">Notifications</span>
+            <div className="flex justify-between items-center px-4 py-2 border-b border-ford-secondary ">
+              <span className="font- text-">Notifications</span>
               <button
-                className="text-xs text-ford-primary hover:underline"
+                className="text-xs text- hover:underline"
                 onClick={markAllAsRead}
               >
                 Mark all read
@@ -163,12 +164,12 @@ export default function Topbar() {
                 <div
                   key={n.id}
                   className={clsx(
-                    "px-4 py-2 hover:bg-gray-100 cursor-pointer flex justify-between items-center",
-                    !n.read && "bg-gray-200 font-semibold"
+                    "px-4 py-2 bg-ford-primary hover:bg-gray-100 cursor-pointer flex justify-between items-center",
+                    !n.read && "bg-gray-200 font-"
                   )}
                   onClick={() => markAsRead(n.id)}
                 >
-                  <span className="text-sm">{n.message}</span>
+                  <span className="text-sm font-extralight ">{n.message}</span>
                   <span className="text-xs text-gray-500">
                     {formatTimestamp(n.timestamp)}
                   </span>
@@ -182,19 +183,19 @@ export default function Topbar() {
         <div className="relative" ref={profileRef}>
           <button
             onClick={toggleProfile}
-            className="flex items-center gap-2 p-2 rounded hover:bg-ford-secondary transition-colors"
+            className="flex items-center gap-2 p-2 rounded  transition-colors "
             aria-haspopup="menu"
             aria-expanded={profileOpen}
           >
-            <div className="w-6 h-6 bg-white text-ford-primary rounded-full flex items-center justify-center text-xs font-semibold">
+            <div className="w-6 h-6 bg-ford-secondary text-ford-primary/0 rounded-full flex items-center justify-center text-xs font-semibold">
               {userInitials}
             </div>
-            <span className="hidden md:inline font-medium">
+            <span className="hidden md:inline text-ford-secondary font-medium">
               {user?.name || "User"}
             </span>
             <ChevronDown
               className={clsx(
-                "w-4 h-4 transition-transform duration-200",
+                "w-4 h-4 transition-transform text-ford-secondary duration-200",
                 profileOpen && "rotate-180"
               )}
             />
@@ -202,7 +203,7 @@ export default function Topbar() {
 
           <div
             className={clsx(
-              "absolute right-0 mt-2 w-44 bg-white text-black rounded shadow-lg py-2 border border-ford-secondary transition-all duration-200 origin-top",
+              "absolute right-0 mt-2 w-44 bg-ford-primary text- rounded shadow-lg py-2 border border-ford-secondary transition-all duration-200 origin-top",
               profileOpen
                 ? "opacity-100 scale-100 translate-y-0 pointer-events-auto"
                 : "opacity-0 scale-95 -translate-y-1 pointer-events-none"
@@ -210,16 +211,16 @@ export default function Topbar() {
             role="menu"
           >
             <button
-              className="w-full text-left px-4 py-2 hover:bg-gray-100"
+              className="w-full text-left px-4 py-2 hover:bg-ford-secondary"
               onClick={() => router.push("/profile")}
             >
               Profile
             </button>
             <button
-              className="w-full flex items-center gap-2 text-left px-4 py-2 hover:bg-gray-100 text-red-600"
+              className="w-full flex items-center text- gap-2 text-left px-4 py-2 hover:bg-ford-secondary "
               onClick={handleLogout}
             >
-              <LogOut className="w-4 h-4" /> Logout
+              <LogOut className="w-4 h-4 " /> Logout
             </button>
           </div>
         </div>

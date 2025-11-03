@@ -23,7 +23,10 @@
 # ford-school
 /lib/cookies.ts
 /.env
-public/**/*.mp4
+
+# Ignore all public assets for now
+/public/
+
 
 
 

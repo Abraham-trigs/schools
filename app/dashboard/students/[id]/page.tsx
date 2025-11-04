@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { Loader2, ArrowLeft } from "lucide-react";
-import { useStudentStore } from "@/app/store/useStudentStore";
+import { Loader2, ArrowLeft, Edit, Trash2 } from "lucide-react";
+import { useStudentStore, StudentDetail } from "@/app/store/useStudentStore";
+import ConfirmDeleteModal from "@/app/dashboard/staff/components/ConfirmDeleteModal.tsx";
+import EditStudentModal from "../components/EditStudentModal";
 
-// Client-safe AttendancesStatus enum
 const AttendancesStatus = {
   PRESENT: "PRESENT",
   ABSENT: "ABSENT",
@@ -16,14 +17,64 @@ const AttendancesStatus = {
 export default function StudentDetailPage() {
   const params = useParams();
   const router = useRouter();
-  const studentId = params.id;
+  const studentId = params?.id;
 
-  const { student, loading, error, fetchStudent } = useStudentStore();
+  const {
+    student,
+    loading,
+    error,
+    fetchStudent,
+    updateStudent,
+    deleteStudent,
+  } = useStudentStore();
 
-  // Fetch the student when page loads
+  const [isEditOpen, setIsEditOpen] = useState(false);
+  const [isDeleteOpen, setIsDeleteOpen] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  // Fetch student on load
   useEffect(() => {
-    if (studentId) fetchStudent(studentId);
+    if (!studentId) return;
+    fetchStudent(studentId);
   }, [studentId, fetchStudent]);
+
+  const handleEdit = () => setIsEditOpen(true);
+  const handleDelete = () => setIsDeleteOpen(true);
+  const closeEdit = () => setIsEditOpen(false);
+  const closeDelete = () => setIsDeleteOpen(false);
+
+  const handleDeleteConfirmed = async () => {
+    if (!student) return;
+    setIsDeleting(true);
+    try {
+      await deleteStudent(student.id);
+      router.replace("/dashboard/students");
+    } catch (err) {
+      // notify handled in store
+    } finally {
+      setIsDeleting(false);
+      closeDelete();
+    }
+  };
+
+  const handleUpdate = async (data: Partial<StudentDetail>) => {
+    if (!student) return;
+    try {
+      await updateStudent(student.id, data);
+    } catch (err) {
+      // notify handled in store
+    } finally {
+      closeEdit();
+    }
+  };
+
+  // --- Render states ---
+  if (!studentId)
+    return (
+      <div className="text-center mt-6 text-red-500">
+        No student ID provided
+      </div>
+    );
 
   if (loading)
     return (
@@ -33,54 +84,67 @@ export default function StudentDetailPage() {
     );
 
   if (error)
-    return (
-      <div className="text-red-500 mt-6 text-center">
-        {error || "Failed to fetch student"}
-      </div>
-    );
+    return <div className="text-red-500 mt-6 text-center">{error}</div>;
 
   if (!student)
-    return <div className="text-center mt-6">Student not found</div>;
+    return (
+      <div className="text-center mt-6 text-gray-500">Student not found</div>
+    );
 
-  const data = student;
-
-  // Attendance summary
-  const summary = Object.values(AttendancesStatus).reduce(
-    (acc, status) => {
-      const count =
-        data.attendances?.filter((a) => a.status === status).length ?? 0;
-      acc[status.toLowerCase()] = count;
-      acc.total += count;
-      return acc;
-    },
-    { total: 0 } as Record<string, number>
-  );
+  const summary =
+    student.attendancesSummary ||
+    Object.values(AttendancesStatus).reduce(
+      (acc, status) => {
+        const count =
+          student.attendances?.filter((a) => a.status === status).length ?? 0;
+        acc[status.toLowerCase()] = count;
+        acc.total += count;
+        return acc;
+      },
+      { total: 0 } as Record<string, number>
+    );
 
   return (
     <div className="p-6 space-y-6 max-w-4xl mx-auto">
-      {/* Back Button */}
-      <button
-        onClick={() => router.back()}
-        className="flex items-center gap-2 text-ford-primary hover:underline"
-      >
-        <ArrowLeft className="w-5 h-5" /> Back to Students
-      </button>
+      {/* Header */}
+      <header className="flex justify-between items-center flex-wrap gap-3">
+        <button
+          onClick={() => router.push("/dashboard/students")}
+          className="flex items-center gap-2 text-ford-primary hover:underline"
+        >
+          <ArrowLeft className="w-5 h-5" /> Back to Students
+        </button>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={handleEdit}
+            className="flex items-center gap-1 px-3 py-1 border border-blue-500 text-blue-600 rounded hover:bg-blue-50 focus:ring-2 focus:ring-blue-400 transition"
+          >
+            <Edit size={16} /> Edit
+          </button>
+          <button
+            onClick={handleDelete}
+            className="flex items-center gap-1 px-3 py-1 border border-red-500 text-red-600 rounded hover:bg-red-50 focus:ring-2 focus:ring-red-400 transition"
+          >
+            <Trash2 size={16} /> Delete
+          </button>
+        </div>
+      </header>
 
-      {/* Student Info Card */}
+      {/* Student Info */}
       <div className="bg-white shadow rounded-lg p-6 space-y-4">
-        <h1 className="text-2xl font-semibold">{data.name}</h1>
+        <h1 className="text-2xl font-semibold">{student.name}</h1>
         <div className="grid grid-cols-2 gap-4 text-sm text-gray-700">
           <div>
-            <span className="font-medium">Email:</span> {data.email}
+            <span className="font-medium">Email:</span> {student.email}
           </div>
           <div>
             <span className="font-medium">Class:</span>{" "}
-            {data.class?.name ?? "—"}
+            {student.class?.name ?? "—"}
           </div>
           <div>
             <span className="font-medium">Enrolled:</span>{" "}
-            {data.enrolledAt
-              ? new Date(data.enrolledAt).toLocaleDateString()
+            {student.enrolledAt
+              ? new Date(student.enrolledAt).toLocaleDateString()
               : "—"}
           </div>
         </div>
@@ -103,9 +167,9 @@ export default function StudentDetailPage() {
       {/* Parents */}
       <div className="bg-white shadow rounded-lg p-6 space-y-2">
         <h2 className="text-xl font-medium">Parents</h2>
-        {data.parents?.length ? (
+        {student.parents?.length ? (
           <ul className="list-disc list-inside text-gray-700">
-            {data.parents.map((p) => (
+            {student.parents.map((p) => (
               <li key={p.email}>
                 {p.name} — {p.email} {p.phone ? `— ${p.phone}` : ""}
               </li>
@@ -119,9 +183,9 @@ export default function StudentDetailPage() {
       {/* Exams */}
       <div className="bg-white shadow rounded-lg p-6 space-y-2">
         <h2 className="text-xl font-medium">Exams</h2>
-        {data.exams?.length ? (
+        {student.exams?.length ? (
           <ul className="list-disc list-inside text-gray-700">
-            {data.exams.map((e, idx) => (
+            {student.exams.map((e, idx) => (
               <li key={idx}>
                 {e.subject}: {e.score}/{e.maxScore}
               </li>
@@ -135,9 +199,9 @@ export default function StudentDetailPage() {
       {/* Transactions */}
       <div className="bg-white shadow rounded-lg p-6 space-y-2">
         <h2 className="text-xl font-medium">Transactions</h2>
-        {data.transactions?.length ? (
+        {student.transactions?.length ? (
           <ul className="list-disc list-inside text-gray-700">
-            {data.transactions.map((t, idx) => (
+            {student.transactions.map((t, idx) => (
               <li key={idx}>
                 {t.type} — {t.amount} — {t.description ?? "-"} —{" "}
                 {new Date(t.date).toLocaleDateString()}
@@ -148,6 +212,25 @@ export default function StudentDetailPage() {
           <p className="text-gray-500 italic">No transactions recorded</p>
         )}
       </div>
+
+      {/* Modals */}
+      {isEditOpen && student && (
+        <EditStudentModal
+          isOpen={isEditOpen}
+          onClose={closeEdit}
+          student={student}
+          onUpdate={handleUpdate}
+        />
+      )}
+      {isDeleteOpen && student && (
+        <ConfirmDeleteModal
+          isOpen={isDeleteOpen}
+          student={student}
+          onClose={closeDelete}
+          onConfirm={handleDeleteConfirmed}
+          loading={isDeleting}
+        />
+      )}
     </div>
   );
 }

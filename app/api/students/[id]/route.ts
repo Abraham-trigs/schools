@@ -1,7 +1,20 @@
+// app/api/students/[id]/route.ts
+// Handles single student fetch, update, and deletion with user-student transactional updates
+
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { cookieUser } from "@/lib/cookieUser";
 import { Role, AttendanceStatus } from "@prisma/client";
+import bcrypt from "bcryptjs";
+import { z } from "zod";
+
+// Zod schema for PATCH updates
+const studentUpdateSchema = z.object({
+  name: z.string().optional(),
+  email: z.string().email().optional(),
+  password: z.string().min(6).optional(),
+  classId: z.string().nullable().optional(),
+});
 
 // GET single student + attendances summary
 export async function GET(req: Request, { params }: { params: { id: string } }) {
@@ -18,7 +31,7 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
       transactions: true,
       attendances: {
         orderBy: { date: "desc" },
-        take: 30, // last 30 attendances entries
+        take: 30,
       },
     },
   });
@@ -50,17 +63,53 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   if (![Role.ADMIN, Role.PRINCIPAL, Role.TEACHER].includes(user.role))
     return NextResponse.json({ message: "Forbidden" }, { status: 403 });
 
-  const body = await req.json();
+  try {
+    const body = await req.json();
+    const data = studentUpdateSchema.parse(body);
 
-  const student = await prisma.student.update({
-    where: { id: params.id },
-    data: {
-      classId: body.classId,
-    },
-    include: { user: true, class: true },
-  });
+    const updateData: any = {};
+    if ("classId" in data) updateData.classId = data.classId;
 
-  return NextResponse.json(student);
+    const userData: any = {};
+    if (data.name) userData.name = data.name;
+    if (data.email) userData.email = data.email;
+    if (data.password) userData.password = await bcrypt.hash(data.password, 10);
+
+    // Transaction to update student and user together
+    const updated = await prisma.$transaction(async (tx) => {
+      const student = await tx.student.update({
+        where: { id: params.id },
+        data: updateData,
+        include: { user: true, class: true },
+      });
+
+      if (Object.keys(userData).length > 0) {
+        await tx.user.update({
+          where: { id: student.userId },
+          data: userData,
+        });
+      }
+
+      return tx.student.findUnique({
+        where: { id: params.id },
+        include: {
+          user: true,
+          class: true,
+          parents: true,
+          exams: true,
+          transactions: true,
+          attendances: true,
+        },
+      });
+    });
+
+    return NextResponse.json(updated);
+  } catch (err: any) {
+    return NextResponse.json(
+      { message: err.message || "Failed to update student" },
+      { status: 400 }
+    );
+  }
 }
 
 // DELETE student

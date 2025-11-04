@@ -3,7 +3,7 @@
 import { create } from "zustand";
 import axios from "axios";
 import { useClassesStore } from "./useClassesStore";
-import { notify } from "@/lib/helpers/notifications"; // <-- notify object
+import { notify } from "@/lib/helpers/notifications";
 
 export interface Attendance {
   id: string;
@@ -18,10 +18,10 @@ export interface Attendance {
 }
 
 export interface StudentDetail {
-  id: string;
+  id: string; // student table ID
   name: string;
   email: string;
-  studentId: string;
+  studentId: string; // optional user ID
   class?: { id: string; name: string } | null;
   enrolledAt?: string | null;
   parents: any[];
@@ -38,7 +38,6 @@ interface StudentStore {
   perPage: number;
   loading: boolean;
   error: string | null;
-
   search: string;
   sortBy: "name" | "email" | "createdAt";
   sortOrder: "asc" | "desc";
@@ -62,6 +61,9 @@ interface StudentStore {
     password?: string;
     classId: string;
   }) => Promise<void>;
+
+  updateStudent: (id: string, data: Partial<StudentDetail> & { classId?: string | null }) => Promise<void>;
+  deleteStudent: (id: string) => Promise<void>;
 }
 
 export const useStudentStore = create<StudentStore>((set, get) => ({
@@ -77,9 +79,6 @@ export const useStudentStore = create<StudentStore>((set, get) => ({
   sortOrder: "asc",
   cache: {},
 
-  // -------------------------------
-  // Fetch multiple students
-  // -------------------------------
   fetchStudents: async (page = get().page, perPage = get().perPage, search = get().search) => {
     set({ loading: true, error: null });
     const { sortBy, sortOrder, cache } = get();
@@ -92,11 +91,12 @@ export const useStudentStore = create<StudentStore>((set, get) => ({
       }
 
       const res = await axios.get("/api/students", { params: { page, perPage, search, sortBy, sortOrder } });
+
       const students: StudentDetail[] = res.data.students.map((s: any) => ({
-        id: s.user?.id ?? s.id,
+        id: s.id, // student table ID
         name: s.user?.name ?? s.name,
         email: s.user?.email ?? "",
-        studentId: s.id,
+        studentId: s.user?.id ?? "",
         class: s.class ?? null,
         enrolledAt: s.enrolledAt ?? null,
         parents: s.parents ?? [],
@@ -115,81 +115,66 @@ export const useStudentStore = create<StudentStore>((set, get) => ({
       }));
     } catch (err: any) {
       set({ error: err.message || "Failed to fetch students", loading: false });
-      notify.error(err.message || "Failed to fetch students"); // <-- corrected notify
+      notify.error(err.message || "Failed to fetch students");
     }
   },
 
-  // -------------------------------
-  // Fetch a single student
-  // -------------------------------
-  fetchStudent: async (id) => {
-    set({ loading: true, error: null });
-    try {
-      const res = await axios.get(`/api/students/${id}`);
-      const s = res.data;
-      const student: StudentDetail = {
-        id: s.user?.id ?? s.id,
-        name: s.user?.name ?? s.name,
-        email: s.user?.email ?? "",
-        studentId: s.id,
-        class: s.class ?? null,
-        enrolledAt: s.enrolledAt ?? null,
-        parents: s.parents ?? [],
-        exams: s.exams ?? [],
-        transactions: s.transactions ?? [],
-        attendances: s.attendances ?? [],
-      };
-      set({ student, loading: false });
-    } catch (err: any) {
-      set({ error: err.message || "Failed to fetch student", loading: false });
-      notify.error(err.message || "Failed to fetch student"); // <-- corrected notify
-    }
-  },
+fetchStudent: async (id) => {
+  set({ loading: true, error: null });
+  try {
+    const res = await axios.get(`/api/students/${id}`);
+    const s = res.data;
+
+    // Normalize student object
+    const student: StudentDetail & { attendancesSummary?: Record<string, number> } = {
+      id: s.id,
+      name: s.user?.name ?? s.name,
+      email: s.user?.email ?? "",
+      studentId: s.user?.id ?? "",
+      class: s.class ?? null,
+      enrolledAt: s.enrolledAt ?? null,
+      parents: s.parents ?? [],
+      exams: s.exams ?? [],
+      transactions: s.transactions ?? [],
+      attendances: s.attendances ?? [],
+      attendancesSummary: s.attendancesSummary ?? undefined,
+    };
+
+    set({ student, loading: false });
+  } catch (err: any) {
+    set({ error: err.response?.data?.message || err.message || "Failed to fetch student", loading: false });
+    notify.error(err.response?.data?.message || err.message || "Failed to fetch student");
+  }
+},
+
+
 
   clearStudent: () => set({ student: null, error: null }),
+  setSearch: (search) => { set({ search, page: 1 }); get().fetchStudents(1); },
+  setSort: (sortBy, sortOrder) => { set({ sortBy, sortOrder }); get().fetchStudents(get().page); },
+  setPage: (page) => { set({ page }); get().fetchStudents(page); },
 
-  setSearch: (search) => {
-    set({ search, page: 1 });
-    get().fetchStudents(1);
-  },
-
-  setSort: (sortBy, sortOrder) => {
-    set({ sortBy, sortOrder });
-    get().fetchStudents(get().page);
-  },
-
-  setPage: (page) => {
-    set({ page });
-    get().fetchStudents(page);
-  },
-
-  // -------------------------------
-  // Directly add a student to the store (optimistic)
-  // -------------------------------
   addStudent: (student) => {
     set((state) => ({ students: [student, ...state.students] }));
-    notify.success(`Added student: ${student.name}`); // <-- corrected notify
+    notify.success(`Added student: ${student.name}`);
   },
 
-  // -------------------------------
-  // Replace a temporary student with real data
-  // -------------------------------
   replaceStudent: (oldId, newStudent) => {
-    set((state) => ({ students: state.students.map((s) => (s.id === oldId ? newStudent : s)) }));
-    notify.success(`Student updated: ${newStudent.name}`); // <-- corrected notify
+    set((state) => ({
+      students: state.students.map((s) => (s.id === oldId ? newStudent : s)),
+      student: state.student?.id === oldId ? newStudent : state.student,
+    }));
+    notify.success(`Student updated: ${newStudent.name}`);
   },
 
-  // -------------------------------
-  // Remove a student from the store
-  // -------------------------------
   removeStudent: (id) => {
-    set((state) => ({ students: state.students.filter((s) => s.id !== id) }));
-    notify.success(`Student removed`); // <-- corrected notify
+    set((state) => ({
+      students: state.students.filter((s) => s.id !== id),
+      student: state.student?.id === id ? null : state.student,
+    }));
+    notify.success(`Student removed`);
   },
 
-  // -------------------------------
-  // Async add student (with backend POST)
-  // -------------------------------
   addStudentAsync: async ({ name, email, password, classId }) => {
     const tempId = `temp-${Date.now()}`;
     const classesStore = useClassesStore.getState();
@@ -204,18 +189,15 @@ export const useStudentStore = create<StudentStore>((set, get) => ({
       transactions: [],
       attendances: [],
     };
-
     get().addStudent(tempStudent);
-
     try {
       const res = await axios.post("/api/students", { name, email, password, classId });
       const data = res.data;
-
       const realStudent: StudentDetail = {
-        id: data.Student?.user?.id ?? "",
+        id: data.Student?.id ?? "",
         name: data.Student?.user?.name ?? data.Student?.name ?? "",
         email: data.Student?.user?.email ?? "",
-        studentId: data.Student?.id ?? "",
+        studentId: data.Student?.user?.id ?? "",
         class: data.Student?.class ?? null,
         enrolledAt: data.Student?.enrolledAt ?? null,
         parents: data.Student?.parents ?? [],
@@ -223,12 +205,67 @@ export const useStudentStore = create<StudentStore>((set, get) => ({
         transactions: data.Student?.transactions ?? [],
         attendances: data.Student?.attendances ?? [],
       };
-
       get().replaceStudent(tempId, realStudent);
-      notify.success(`Student "${realStudent.name}" added successfully`); // <-- corrected notify
+      notify.success(`Student "${realStudent.name}" added successfully`);
     } catch (err: any) {
       get().removeStudent(tempId);
-      notify.error(err.message || "Failed to add student"); // <-- corrected notify
+      notify.error(err.message || "Failed to add student");
+      throw err;
+    }
+  },
+
+  updateStudent: async (id, data) => {
+    try {
+      const payload: Partial<StudentDetail> & { classId?: string | null } = {};
+
+      if (data.name && data.name.trim() !== "") payload.name = data.name.trim();
+      if (data.email && data.email.trim() !== "") payload.email = data.email.trim();
+      if (data.password && data.password.trim() !== "") payload.password = data.password;
+      if ("classId" in data) payload.classId = data.classId || null;
+
+      if (Object.keys(payload).length === 0) {
+        notify.info("No changes to update");
+        return;
+      }
+
+      const res = await axios.patch(`/api/students/${id}`, payload);
+      const s = res.data;
+
+      const updated: StudentDetail = {
+        id: s.id,
+        name: s.user?.name ?? s.name,
+        email: s.user?.email ?? "",
+        studentId: s.user?.id ?? "",
+        class: s.class ?? null,
+        enrolledAt: s.enrolledAt ?? null,
+        parents: s.parents ?? [],
+        exams: s.exams ?? [],
+        transactions: s.transactions ?? [],
+        attendances: s.attendances ?? [],
+      };
+
+      set((state) => ({
+        students: state.students.map((st) => (st.id === id ? updated : st)),
+        student: state.student?.id === id ? updated : state.student,
+      }));
+
+      notify.success(`Student "${updated.name}" updated successfully`);
+    } catch (err: any) {
+      notify.error(err.message || "Failed to update student");
+      throw err;
+    }
+  },
+
+  deleteStudent: async (id) => {
+    try {
+      await axios.delete(`/api/students/${id}`);
+      set((state) => ({
+        students: state.students.filter((s) => s.id !== id),
+        student: state.student?.id === id ? null : state.student,
+      }));
+      notify.success("Student deleted successfully");
+    } catch (err: any) {
+      notify.error(err.message || "Failed to delete student");
       throw err;
     }
   },

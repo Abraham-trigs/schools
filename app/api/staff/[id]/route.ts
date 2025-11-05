@@ -1,5 +1,5 @@
 // app/api/staff/[id]/route.ts
-// Purpose: Update or delete a staff member securely, enforcing school scoping, nested user updates, and department inference.
+// Purpose: Update or delete a staff member securely, supporting multiple subjects, enforcing school scoping, nested user updates, and department inference.
 
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
@@ -12,7 +12,8 @@ const staffUpdateSchema = z.object({
   name: z.string().optional(),
   email: z.string().email().optional(),
   position: z.string().optional(),
-  classId: z.string().optional().nullable(),
+  classId: z.string().nullable().optional(),
+  subjects: z.array(z.string()).optional(),
 });
 
 // ------------------------- PUT: Update staff -------------------------
@@ -26,11 +27,10 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
 
     const staff = await prisma.staff.findUnique({
       where: { id: params.id },
-      include: { user: true },
+      include: { user: true, subjects: true },
     });
     if (!staff) return NextResponse.json({ error: "Staff not found" }, { status: 404 });
 
-    // Ensure staff belongs to current user's school
     if (staff.user.schoolId !== currentUser.school.id)
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
@@ -45,6 +45,10 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
       classId: requiresClass(data.position) ? data.classId ?? null : null,
     };
 
+    if (data.subjects) {
+      updateData.subjects = { set: data.subjects.map((id) => ({ id })) };
+    }
+
     if (data.name || data.email) {
       await prisma.user.update({
         where: { id: staff.userId },
@@ -55,13 +59,16 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     const updated = await prisma.staff.update({
       where: { id: params.id },
       data: updateData,
-      include: { user: true, class: true, department: true },
+      include: { user: true, class: true, department: true, subjects: true },
     });
 
     return NextResponse.json({ staff: updated });
   } catch (err: any) {
     if (err instanceof z.ZodError)
-      return NextResponse.json({ error: { message: "Validation failed", details: err.errors } }, { status: 400 });
+      return NextResponse.json(
+        { error: { message: "Validation failed", details: err.errors } },
+        { status: 400 }
+      );
     return NextResponse.json({ error: { message: err.message || "Internal Server Error" } }, { status: 500 });
   }
 }
@@ -77,7 +84,6 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
   });
   if (!staff) return NextResponse.json({ error: "Staff not found" }, { status: 404 });
 
-  // Ensure staff belongs to current user's school
   if (staff.user.schoolId !== currentUser.school.id)
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
@@ -90,13 +96,14 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
 }
 
 /* Design reasoning:
-- PUT ensures staff updates respect school boundaries and maintain nested user and department consistency.
-- DELETE enforces school scoping to prevent accidental removal across schools.
+- PUT now supports updating multiple subjects via Prisma many-to-many set.
+- DELETE ensures school scoping and prevents cross-school deletion.
 Structure:
-- PUT: update staff
-- DELETE: delete staff
+- PUT: Update staff with nested user and subjects.
+- DELETE: Remove staff safely.
 Implementation guidance:
-- Wire into staff management UI with edit/delete controls and optimistic updates.
+- Front-end must send subjects as array of IDs for create/update.
+- Optimistic UI updates possible via useStaffStore.
 Scalability insight:
-- Future enhancements: audit logs, role-based restrictions, or batch updates without changing endpoint structure.
+- Adding additional relations or roles can be achieved without modifying core CRUD logic.
 */

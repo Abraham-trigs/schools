@@ -1,11 +1,15 @@
 // app/api/staff/route.ts
-// Purpose: List and create staff scoped to authenticated user's school with pagination, search, filtering, role & department inference, and secure password handling.
+// Purpose: List and create staff scoped to authenticated user's school with pagination, search, filtering, role & department inference, and multi-subject support.
 
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { z } from "zod";
 import { cookieUser } from "@/lib/cookieUser";
-import { inferRoleFromPosition, inferDepartmentFromPosition, requiresClass } from "@/lib/api/constants/roleInference.ts";
+import {
+  inferRoleFromPosition,
+  inferDepartmentFromPosition,
+  requiresClass,
+} from "@/lib/api/constants/roleInference.ts";
 import bcrypt from "bcryptjs";
 
 // ------------------------- Types -------------------------
@@ -15,7 +19,7 @@ interface StaffCreateRequest {
   position?: string | null;
   classId?: string | null;
   salary?: number | null;
-  subject?: string | null;
+  subjects?: string[]; // multiple subjects
   hireDate?: Date | null;
   password: string;
 }
@@ -26,9 +30,11 @@ const staffSchema = z.object({
   email: z.string().email("Invalid email"),
   position: z.string().optional().nullable(),
   classId: z.string().optional().nullable(),
-  salary: z.preprocess((val) => (val === "" ? null : Number(val)), z.number().nullable().optional()),
-  subject: z.string().optional().nullable(),
-  hireDate: z.preprocess((val) => (val ? new Date(val as string) : null), z.date().nullable().optional()),
+  salary: z
+    .preprocess((val) => (val === "" ? null : Number(val)), z.number().nullable().optional()),
+  subjects: z.array(z.string()).optional(),
+  hireDate: z
+    .preprocess((val) => (val ? new Date(val as string) : null), z.date().nullable().optional()),
   password: z.string().min(6, "Password must be at least 6 characters"),
 });
 
@@ -44,7 +50,7 @@ export async function GET(req: NextRequest) {
   const page = Number(url.searchParams.get("page") || 1);
   const perPage = Number(url.searchParams.get("perPage") || 10);
 
-  const where: any = { user: { schoolId: user.school.id } }; // enforce school scope
+  const where: any = { user: { schoolId: user.school.id } };
   if (search) {
     where.OR = [
       { user: { name: { contains: search, mode: "insensitive" } } },
@@ -57,7 +63,7 @@ export async function GET(req: NextRequest) {
   const [staffList, total] = await prisma.$transaction([
     prisma.staff.findMany({
       where,
-      include: { user: true, class: true, department: true },
+      include: { user: true, class: true, department: true, subjects: true },
       skip: (page - 1) * perPage,
       take: perPage,
       orderBy: { createdAt: "desc" },
@@ -96,7 +102,7 @@ export async function POST(req: NextRequest) {
           email: data.email,
           password: hashedPassword,
           role,
-          schoolId: user.school.id, // assign to current user's school
+          schoolId: user.school.id,
         },
       });
 
@@ -107,28 +113,32 @@ export async function POST(req: NextRequest) {
           departmentId: department?.id ?? null,
           classId: requiresClass(data.position) ? data.classId : null,
           salary: data.salary ?? null,
-          subject: data.subject ?? null,
           hireDate: data.hireDate ?? null,
+          subjects: data.subjects && data.subjects.length
+            ? { connect: data.subjects.map((id) => ({ id })) }
+            : undefined,
         },
-        include: { user: true, class: true, department: true },
+        include: { user: true, class: true, department: true, subjects: true },
       });
 
       return NextResponse.json(newStaff, { status: 201 });
     });
   } catch (err: any) {
-    if (err instanceof z.ZodError) return NextResponse.json({ error: err.flatten() }, { status: 400 });
+    if (err instanceof z.ZodError)
+      return NextResponse.json({ error: err.flatten() }, { status: 400 });
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
 }
 
 /* Design reasoning:
-- GET ensures staff listing is restricted to the authenticated user's school, with search, pagination, and filtering for better UX.
-- POST securely hashes passwords, infers role/department, and enforces school scoping to maintain data integrity.
+- Multi-subject support implemented via Prisma many-to-many connect.
+- GET supports pagination, search, filtering by role/department.
+- POST ensures secure password hashing, school scoping, and proper department/class inference.
 Structure:
-- GET: list staff
-- POST: create staff
+- GET: List staff with subjects included.
+- POST: Create staff with multiple subjects.
 Implementation guidance:
-- Integrate with staff management UI with live search and paginated table.
+- Wire to front-end store (useStaffStore) expecting subjects as array of IDs.
 Scalability insight:
-- Future filters (e.g., hireDate, subjects) can be added without changing core endpoint.
+- Adding extra relations (e.g., additional roles or departments) can be done without changing core logic.
 */

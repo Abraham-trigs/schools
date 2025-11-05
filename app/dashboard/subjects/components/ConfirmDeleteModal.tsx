@@ -1,52 +1,46 @@
 // app/components/subjects/ConfirmDeleteModal.tsx
-// Purpose: Modal to confirm deletion of a subject with store integration and optimistic UI
+// Purpose: Reusable modal to confirm deletion of a subject, handles optimistic UI, error display, and integrates with Zustand store.
 
 import React, { useState } from "react";
 import { useSubjectStore } from "@/app/store/subjectStore.ts";
 
 interface ConfirmDeleteModalProps {
-  isOpen: boolean;
   onClose: () => void;
+  onSuccess?: () => void; // Callback after successful deletion (e.g., refresh table)
   subjectId: string;
   subjectName: string;
 }
 
 export default function ConfirmDeleteModal({
-  isOpen,
   onClose,
+  onSuccess,
   subjectId,
   subjectName,
 }: ConfirmDeleteModalProps) {
   const { deleteSubject, loading } = useSubjectStore();
   const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<string | null>(null);
 
+  // ------------------------- Delete handler -------------------------
   const handleDelete = async () => {
     try {
       await deleteSubject(subjectId);
-      setSuccess(`Deleted "${subjectName}" successfully`);
-      setTimeout(() => {
-        onClose();
-        setSuccess(null);
-      }, 1000);
+      if (onSuccess) onSuccess(); // Refresh table & close modal
     } catch (err: any) {
       setError(err.message);
     }
   };
 
-  if (!isOpen) return null;
-
+  // ------------------------- Render -------------------------
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
       <div className="bg-white p-6 rounded-lg w-full max-w-md">
         <h2 className="text-lg font-semibold mb-4">Confirm Delete</h2>
         <p className="mb-4">
-          Are you sure you want to delete the subject "
-          <strong>{subjectName}</strong>"? This action cannot be undone.
+          Are you sure you want to delete "<strong>{subjectName}</strong>"? This
+          action cannot be undone.
         </p>
 
         {error && <p className="text-red-500">{error}</p>}
-        {success && <p className="text-green-500">{success}</p>}
 
         <div className="flex justify-end space-x-2">
           <button
@@ -71,23 +65,21 @@ export default function ConfirmDeleteModal({
   );
 }
 
-/*
-Design reasoning:
-- Provides clear confirmation to prevent accidental deletions.
-- Optimistic UI: closes modal after successful deletion with brief success message.
-- Integrates directly with the store for consistency with other subject CRUD operations.
+/* Design reasoning:
+- Provides a clear, focused confirmation modal before destructive actions.
+- Uses Zustand store to manage deletion and loading state for optimistic UI feedback.
+- Displays errors inline for immediate feedback.
 
 Structure:
-- Props: isOpen, onClose, subjectId, subjectName
-- handleDelete: calls store deleteSubject
-- Inline feedback: error/success
+- Overlay container with centered modal panel.
+- Title, message with subject name, error display, and action buttons.
+- Cancel closes modal; Delete triggers store action.
 
 Implementation guidance:
-- Use in subject table row delete action.
-- Can extend to handle multi-select deletes by passing array of IDs.
-- Button states disabled during loading for clear UX.
+- `onSuccess` should refresh parent list or close modal.
+- Disabled state ensures user cannot trigger multiple requests.
 
 Scalability insight:
-- Can add undo option or soft-delete feature without major refactor.
-- Pattern reusable for other entities requiring delete confirmation.
+- Can be reused for any entity deletion by passing `subjectId`/`subjectName` props.
+- Easy to extend with additional confirmations or warnings.
 */

@@ -34,7 +34,7 @@ export default function AddStudentModal({
 
   // Load classes when modal opens
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen) return null;
 
     fetchClasses().catch(() => setError("Failed to load classes"));
   }, [isOpen, fetchClasses]);

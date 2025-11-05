@@ -1,89 +1,104 @@
-// app/api/subjects/[id]/route.ts
-// Purpose: Handle GET, PUT, DELETE for a single Subject with full JSON responses
+// app/api/subjects/[id]/route.ts — Retrieve, update, and delete a single Subject.
 
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { cookieUser } from "@/lib/cookieUser";
 import { z } from "zod";
-import { cookieUser } from "@/lib/cookieUser.ts";
 
 const subjectSchema = z.object({
-  name: z.string().min(1).optional(),
-  code: z.string().optional().nullable(),
+  name: z.string().min(1).trim(),
+  code: z.string().min(1).trim(),
+  description: z.string().optional().nullable(),
 });
 
+const normalizeInput = (input: any) => ({
+  name: input.name?.trim(),
+  code: input.code?.trim().toUpperCase(),
+  description: input.description?.trim() || null,
+});
+
+// ------------------------- GET -------------------------
 export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
-  const user = await cookieUser(req);
-  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
-  const subject = await prisma.subject.findUnique({
-    where: { id: params.id },
-    include: {
-      createdBy: { select: { id: true, name: true, role: true } },
-      staff: { select: { userId: true, user: { select: { id: true, name: true, role: true } } } },
-      classes: true,
-    },
-  });
-
-  if (!subject) return NextResponse.json({ error: "Subject not found" }, { status: 404 });
-
-  return NextResponse.json({ data: subject });
-}
-
-export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
-  const user = await cookieUser(req);
-  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
-  const json = await req.json().catch(() => ({}));
-  const parsed = subjectSchema.safeParse(json);
-  if (!parsed.success) return NextResponse.json({ error: parsed.error.format() }, { status: 400 });
-
-  const updated = await prisma.subject.update({
-    where: { id: params.id },
-    data: parsed.data,
-    include: {
-      createdBy: { select: { id: true, name: true, role: true } },
-      staff: { select: { userId: true, user: { select: { id: true, name: true, role: true } } } },
-      classes: true,
-    },
-  });
-
-  return NextResponse.json({ data: updated });
-}
-
-export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
-  const user = await cookieUser(req);
-  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
   try {
-    const deleted = await prisma.subject.delete({
-      where: { id: params.id },
+    const user = await cookieUser(req);
+    if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+    const subject = await prisma.subject.findFirst({
+      where: { id: params.id, schoolId: user.schoolId },
     });
-    // Always return wrapped in data for consistency
-    return NextResponse.json({ data: deleted });
+    if (!subject) return NextResponse.json({ error: "Subject not found" }, { status: 404 });
+
+    return NextResponse.json(subject);
   } catch (err: any) {
-    if (err.code === "P2025") {
-      return NextResponse.json({ error: "Subject not found" }, { status: 404 });
-    }
-    return NextResponse.json({ error: "Failed to delete subject" }, { status: 500 });
+    console.error(err);
+    return NextResponse.json({ error: err.message || "Failed to fetch subject" }, { status: 500 });
+  }
+}
+
+// ------------------------- PUT -------------------------
+export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
+  try {
+    const user = await cookieUser(req);
+    if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+    const json = await req.json();
+    const parsed = subjectSchema.safeParse(normalizeInput(json));
+    if (!parsed.success)
+      return NextResponse.json({ error: parsed.error.flatten().fieldErrors }, { status: 400 });
+
+    const subject = await prisma.subject.findFirst({
+      where: { id: params.id, schoolId: user.schoolId },
+    });
+    if (!subject) return NextResponse.json({ error: "Subject not found" }, { status: 404 });
+
+    const codeExists = await prisma.subject.findFirst({
+      where: {
+        code: parsed.data.code,
+        schoolId: user.schoolId,
+        NOT: { id: params.id },
+      },
+    });
+    if (codeExists)
+      return NextResponse.json({ error: "Subject code already exists" }, { status: 409 });
+
+    const updated = await prisma.subject.update({
+      where: { id: params.id },
+      data: parsed.data,
+    });
+
+    return NextResponse.json(updated);
+  } catch (err: any) {
+    console.error(err);
+    return NextResponse.json({ error: err.message || "Failed to update subject" }, { status: 500 });
+  }
+}
+
+// ------------------------- DELETE -------------------------
+export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
+  try {
+    const user = await cookieUser(req);
+    if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+    const subject = await prisma.subject.findFirst({
+      where: { id: params.id, schoolId: user.schoolId },
+    });
+    if (!subject) return NextResponse.json({ error: "Subject not found" }, { status: 404 });
+
+    await prisma.subject.delete({ where: { id: params.id } });
+
+    return NextResponse.json({ success: true });
+  } catch (err: any) {
+    console.error(err);
+    return NextResponse.json({ error: err.message || "Failed to delete subject" }, { status: 500 });
   }
 }
 
 /*
-Design reasoning:
-- All responses now consistently return a JSON object with a `data` or `error` field.
-- This avoids `Unexpected end of JSON input` on the frontend.
-- GET/PUT/DELETE endpoints aligned to return full objects for predictable store handling.
+Design reasoning → Symmetrical CRUD design for Subjects. PUT and DELETE share validation and authorization logic to prevent cross-school access. 
 
-Structure:
-- GET: fetch single subject (data wrapped)
-- PUT: update subject (data wrapped)
-- DELETE: delete subject (data wrapped)
+Structure → Exports GET + PUT + DELETE. Each checks auth, validates ownership, and returns consistent error shapes.
 
-Implementation guidance:
-- Frontend should always do `const { data, error } = await res.json()` safely.
-- Prevent empty response bodies which break JSON parsing.
-- Use try/catch on fetch to handle server errors gracefully.
+Implementation guidance → Drop in /app/api/subjects/[id]/. Works directly with useSubjectStore actions (updateSubject, deleteSubject). 
 
-Scalability insight:
-- Consistent response wrapper (`{ data, error }`) allows the same parsing pattern for all collection and item routes.
+Scalability insight → Future-safe for bulk actions (batch delete or update). Wrap in prisma.$transaction if cascading related data (e.g., subject-class links).
 */

@@ -1,105 +1,99 @@
-// app/api/subjects/route.ts
-// Purpose: Handle listing and creating subjects with search, pagination, filters, auth, and createdBy info
+// app/api/subjects/route.ts — List and create Subjects scoped to authenticated user's school.
 
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { cookieUser } from "@/lib/cookieUser";
 import { z } from "zod";
-import { cookieUser } from "@/lib/cookieUser.ts";
 
+// ------------------------- Schema -------------------------
 const subjectSchema = z.object({
-  name: z.string().min(1),
-  code: z.string().optional().nullable(),
+  name: z.string().min(1, "Name is required").trim(),
+  code: z.string().min(1, "Code is required").trim(),
+  description: z.string().optional().nullable(),
 });
 
+const normalizeInput = (input: any) => ({
+  name: input.name?.trim(),
+  code: input.code?.trim().toUpperCase(),
+  description: input.description?.trim() || null,
+});
+
+// ------------------------- GET -------------------------
 export async function GET(req: NextRequest) {
-  const user = await cookieUser(req);
-  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  try {
+    const user = await cookieUser(req);
+    if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const url = new URL(req.url);
-  const search = url.searchParams.get("search") || "";
-  const page = Number(url.searchParams.get("page") || 1);
-  const limit = Number(url.searchParams.get("limit") || 20);
-  const skip = (page - 1) * limit;
+    const { searchParams } = new URL(req.url);
+    const page = Number(searchParams.get("page") || 1);
+    const limit = Number(searchParams.get("limit") || 10);
+    const search = searchParams.get("search")?.trim() || "";
 
-  const filters: any = {};
+    const where = {
+      schoolId: user.schoolId,
+      ...(search
+        ? {
+            OR: [
+              { name: { contains: search, mode: "insensitive" } },
+              { code: { contains: search, mode: "insensitive" } },
+            ],
+          }
+        : {}),
+    };
 
-  // Apply classId filter
-  const classId = url.searchParams.get("classId");
-  if (classId) {
-    filters.classes = { some: { id: classId } };
+    const [data, total] = await prisma.$transaction([
+      prisma.subject.findMany({
+        where,
+        orderBy: { name: "asc" },
+        skip: (page - 1) * limit,
+        take: limit,
+      }),
+      prisma.subject.count({ where }),
+    ]);
+
+    return NextResponse.json({
+      data,
+      meta: { total, page, limit },
+    });
+  } catch (err: any) {
+    console.error(err);
+    return NextResponse.json({ error: err.message || "Failed to fetch subjects" }, { status: 500 });
   }
-
-  // Apply staffId filter
-  const staffId = url.searchParams.get("staffId");
-  if (staffId) {
-    filters.staff = { some: { userId: staffId } };
-  }
-
-  // Apply date range filter
-  const fromDate = url.searchParams.get("fromDate");
-  const toDate = url.searchParams.get("toDate");
-  if (fromDate || toDate) {
-    filters.createdAt = {};
-    if (fromDate) filters.createdAt.gte = new Date(fromDate);
-    if (toDate) filters.createdAt.lte = new Date(toDate);
-  }
-
-  const subjects = await prisma.subject.findMany({
-    where: {
-      name: { contains: search, mode: "insensitive" },
-      ...filters,
-    },
-    skip,
-    take: limit,
-    orderBy: { createdAt: "desc" },
-    include: { createdBy: { select: { id: true, name: true, role: true } } },
-  });
-
-  const total = await prisma.subject.count({
-    where: {
-      name: { contains: search, mode: "insensitive" },
-      ...filters,
-    },
-  });
-
-  return NextResponse.json({ data: subjects, meta: { total, page, limit } });
 }
 
+// ------------------------- POST -------------------------
 export async function POST(req: NextRequest) {
-  const user = await cookieUser(req);
-  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  try {
+    const user = await cookieUser(req);
+    if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const json = await req.json();
-  const parsed = subjectSchema.safeParse(json);
-  if (!parsed.success) return NextResponse.json({ error: parsed.error.format() }, { status: 400 });
+    const json = await req.json();
+    const parsed = subjectSchema.safeParse(normalizeInput(json));
+    if (!parsed.success)
+      return NextResponse.json({ error: parsed.error.flatten().fieldErrors }, { status: 400 });
 
-  const subject = await prisma.subject.create({
-    data: {
-      ...parsed.data,
-      createdById: user.id,
-    },
-    include: { createdBy: { select: { id: true, name: true, role: true } } },
-  });
+    const exists = await prisma.subject.findFirst({
+      where: { code: parsed.data.code, schoolId: user.schoolId },
+    });
+    if (exists) return NextResponse.json({ error: "Subject code already exists" }, { status: 409 });
 
-  return NextResponse.json(subject, { status: 201 });
+    const subject = await prisma.subject.create({
+      data: { ...parsed.data, schoolId: user.schoolId },
+    });
+
+    return NextResponse.json(subject, { status: 201 });
+  } catch (err: any) {
+    console.error(err);
+    return NextResponse.json({ error: err.message || "Failed to create subject" }, { status: 500 });
+  }
 }
 
-/*
-Design reasoning:
-- Filters now fully align with the store, allowing class, staff, and date range queries.
-- Maintains createdBy info for audit transparency.
-- Pagination/search remains intact.
+/* 
+Design reasoning → Matches existing pattern (StudentsPage, Staff API). Unified Zod schema enforces validation consistency and normalization. GET supports pagination, search, and school scoping. POST normalizes and deduplicates codes for safe creation.
 
-Structure:
-- GET: list with filters, pagination, search
-- POST: create with server-side createdById
+Structure → Exports GET + POST. Helpers: normalizeInput. Uses prisma.$transaction for count + list. Returns { data, meta } to match useSubjectStore.
 
-Implementation guidance:
-- Front-end passes filter params via query string; GET handler maps them to Prisma where conditions.
-- Date filtering coerces ISO strings to Date objects.
-- Supports future extensions like department or term filters.
+Implementation guidance → Drop in /app/api/subjects/. Store already expects this shape. Ensure prisma model `Subject` has fields: id, name, code, description, schoolId.
 
-Scalability insight:
-- Easy to add more filter fields (e.g., subject code, schoolId).
-- Supports infinite scroll or dynamic filter combinations without changing store logic.
+Scalability insight → Add filters (e.g., department, level) by extending `where`. Pagination can later move to cursor-based if dataset grows large.
 */

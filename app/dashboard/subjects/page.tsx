@@ -18,7 +18,7 @@ export default function SubjectsPage() {
 
   // ------------------------- Local state -------------------------
   const [localSearch, setLocalSearch] = useState("");
-  const [addModalOpen, setAddModalOpen] = useState(false);
+  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [editModal, setEditModal] = useState<{
     open: boolean;
     subjectId?: string;
@@ -95,7 +95,7 @@ export default function SubjectsPage() {
           />
           <button
             type="button"
-            onClick={() => setAddModalOpen(true)}
+            onClick={() => setIsAddModalOpen(true)}
             className="flex items-center gap-1 bg-ford-primary text-white px-3 py-1 rounded-md text-sm hover:bg-ford-secondary transition relative z-10"
           >
             <Plus className="w-4 h-4" /> Add Subject
@@ -214,23 +214,25 @@ export default function SubjectsPage() {
       </div>
 
       {/* Modals */}
-      {addModalOpen && (
+
+      {isAddModalOpen && (
         <AddSubjectModal
-          onClose={() => setAddModalOpen(false)}
+          onClose={() => setIsAddModalOpen(false)}
           onSuccess={() => {
-            setAddModalOpen(false);
-            fetchSubjects(page, localSearch);
+            setIsAddModalOpen(false);
+            fetchSubjects();
           }}
         />
       )}
 
       {editModal.open && editModal.subjectId && (
         <EditSubjectModal
-          subjectId={editModal.subjectId}
+          isOpen={editModal.open}
+          subjectId={editModal.subjectId ?? ""}
           onClose={() => setEditModal({ open: false, subjectId: undefined })}
           onSuccess={() => {
             setEditModal({ open: false, subjectId: undefined });
-            fetchSubjects(page, localSearch);
+            fetchSubjects(page, localSearch); // ✅ refresh data after edit
           }}
         />
       )}

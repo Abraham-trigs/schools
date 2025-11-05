@@ -5,7 +5,7 @@ import React, { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
-import { useSubjectStore } from "@/app/store/subjectStore.ts";
+import { useSubjectStore } from "@/app/store/subjectStore";
 
 // ------------------------- Schema -------------------------
 const editSubjectSchema = z.object({
@@ -19,6 +19,7 @@ interface EditSubjectModalProps {
   isOpen: boolean;
   onClose: () => void;
   subjectId: string;
+  onSuccess?: () => void; // ✅ added callback
 }
 
 // ------------------------- Modal Component -------------------------
@@ -26,6 +27,7 @@ export default function EditSubjectModal({
   isOpen,
   onClose,
   subjectId,
+  onSuccess,
 }: EditSubjectModalProps) {
   const { updateSubject } = useSubjectStore();
   const [subject, setSubject] = useState<EditSubjectFormData & any>(null);
@@ -40,7 +42,7 @@ export default function EditSubjectModal({
 
   // ------------------------- Fetch subject data on open -------------------------
   useEffect(() => {
-    if (isOpen) {
+    if (isOpen && subjectId) {
       setLoading(true);
       fetch(`/api/subjects/${subjectId}`)
         .then((res) => res.json())
@@ -55,12 +57,24 @@ export default function EditSubjectModal({
 
   // ------------------------- Submit handler -------------------------
   const onSubmit = async (data: EditSubjectFormData) => {
-    const updated = await updateSubject(subjectId, data);
-    if (updated) setSuccess("Subject updated successfully");
+    setError(null);
+    setSuccess(null);
+    setLoading(true);
+    try {
+      const updated = await updateSubject(subjectId, data);
+      if (updated) {
+        setSuccess("Subject updated successfully");
+        onSuccess?.(); // ✅ trigger parent refresh
+      }
+    } catch (err: any) {
+      setError(err.message || "Failed to update subject");
+    } finally {
+      setLoading(false);
+    }
   };
 
   if (!isOpen) return null;
-  if (loading) return <div>Loading subject...</div>;
+  if (loading && !subject) return <div>Loading subject...</div>;
 
   // ------------------------- Render -------------------------
   return (
@@ -97,17 +111,19 @@ export default function EditSubjectModal({
           </div>
 
           {/* Created by info */}
-          <div>
-            <strong>Created by:</strong> {subject?.createdBy?.name} (
-            {subject?.createdBy?.role})
-          </div>
+          {subject?.createdBy && (
+            <div>
+              <strong>Created by:</strong> {subject.createdBy.name} (
+              {subject.createdBy.role})
+            </div>
+          )}
 
           {/* Feedback */}
           {error && <p className="text-red-500">{error}</p>}
           {success && <p className="text-green-500">{success}</p>}
 
           {/* Buttons */}
-          <div className="flex justify-end space-x-2">
+          <div className="flex justify-end space-x-2 mt-4">
             <button
               type="button"
               onClick={onClose}
@@ -131,19 +147,11 @@ export default function EditSubjectModal({
 }
 
 /* Design reasoning:
-- Preloads subject data on open for a seamless editing experience.
-- Shows creator info to provide context and accountability.
-- Optimistic UI feedback with success/error messaging for clarity.
-
-Structure:
-- useForm with Zod handles validation.
-- State tracks subject, loading, error, and success.
-- Fetches single subject via API on modal open.
-
-Implementation guidance:
-- Parent component controls modal open/close; pass subjectId prop.
-- updateSubject uses store transaction to persist updates.
+- Added onSuccess for parent-level control (refresh + close modal).
+- Keeps validation and error boundaries self-contained.
+- Loading guard ensures data consistency when opening modal.
 
 Scalability insight:
-- Can extend modal to edit related entities (staff assignments, classes) without changing core form structure.
+- Can easily extend to include related entities (staff/class assignment).
+- Pattern matches Add/Delete modals for predictable behavior.
 */

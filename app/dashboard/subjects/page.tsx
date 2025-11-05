@@ -1,226 +1,250 @@
-// app/dashboard/subjects/page.tsx
-// Full-featured CRUD page for Subjects with search, pagination, and modals
+// app/subjects/page.tsx
+// Purpose: Manage Subjects with full CRUD, search, filtering, sorting, and paginated table similar to StudentsPage
 
 "use client";
 
-import { useEffect, useState } from "react";
-import { useSubjectStore } from "@/app/store/subjectStore.ts";
-import { Dialog } from "@headlessui/react";
-import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
-import { z } from "zod";
-import { Plus, Trash2, Edit2, Loader2, X } from "lucide-react";
-
-// Zod schema for form validation
-const SubjectSchema = z.object({
-  name: z.string().min(2, "Name must be at least 2 characters"),
-  code: z.string().optional(),
-});
-
-type SubjectForm = z.infer<typeof SubjectSchema>;
+import React, { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import { Loader2, Plus } from "lucide-react";
+import { useSubjectStore } from "@/app/store/subjectStore";
+import { useClassesStore } from "@/app/store/useClassesStore";
+import { useStaffStore } from "@/app/store/useStaffStore";
+import AddSubjectModal from "./components/AddsubjectModal.tsx";
+import EditSubjectModal from "./components/EditSubjectModal.tsx";
+import ConfirmDeleteModal from "./components/ConfirmDeleteModal.tsx";
 
 export default function SubjectsPage() {
+  const router = useRouter();
+  const [localSearch, setLocalSearch] = useState("");
+  const [addModalOpen, setAddModalOpen] = useState(false);
+  const [editModalOpen, setEditModalOpen] = useState<{
+    open: boolean;
+    subjectId?: string;
+  }>({ open: false });
+  const [deleteModalOpen, setDeleteModalOpen] = useState<{
+    open: boolean;
+    subjectId?: string;
+  }>({ open: false });
+
   const {
     subjects,
     total,
+    page,
+    limit,
     loading,
+    error,
     fetchSubjects,
-    createSubject,
-    updateSubject,
     deleteSubject,
+    sortBy,
+    sortOrder,
+    setSort,
+    setPage,
+    setSearch,
   } = useSubjectStore();
-  const [page, setPage] = useState(1);
-  const [search, setSearch] = useState("");
-  const [modalOpen, setModalOpen] = useState(false);
-  const [editingSubject, setEditingSubject] = useState<null | any>(null);
 
-  const {
-    register,
-    handleSubmit,
-    reset,
-    formState: { errors, isSubmitting },
-  } = useForm<SubjectForm>({
-    resolver: zodResolver(SubjectSchema),
-  });
+  const { classes, fetchClasses } = useClassesStore();
+  const { staffList, fetchStaff } = useStaffStore();
+
+  const totalPages = Math.ceil(total / limit);
 
   useEffect(() => {
-    fetchSubjects({ search, page });
-  }, [search, page]);
+    fetchSubjects(page, localSearch);
+    fetchClasses();
+    fetchStaff();
+  }, []);
 
-  const onSubmit = async (data: SubjectForm) => {
-    if (editingSubject) {
-      await updateSubject(editingSubject.id, data);
-    } else {
-      await createSubject(data);
-    }
-    setModalOpen(false);
-    reset();
-    setEditingSubject(null);
-  };
+  // Debounced search
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      setPage(1);
+      setSearch(localSearch);
+    }, 300);
+    return () => clearTimeout(handler);
+  }, [localSearch]);
 
-  const handleEdit = (subject: any) => {
-    setEditingSubject(subject);
-    reset({ name: subject.name, code: subject.code || "" });
-    setModalOpen(true);
+  const toggleSort = (key: "name" | "code" | "createdBy") => {
+    const order = sortBy === key && sortOrder === "asc" ? "desc" : "asc";
+    setSort(key, order);
   };
 
   const handleDelete = async (id: string) => {
-    if (confirm("Are you sure you want to delete this subject?")) {
-      await deleteSubject(id);
-    }
+    await deleteSubject(id);
+    setDeleteModalOpen({ open: false });
+    fetchSubjects(page, localSearch);
+  };
+
+  const handleRowClick = (subjectId: string) => {
+    router.push(`/dashboard/subjects/${subjectId}`);
   };
 
   return (
-    <div className="p-4 max-w-6xl mx-auto mt-7">
-      <div className="flex justify-between items-center mb-4">
-        <h1 className="text-2xl font-bold">Subjects</h1>
-        <button
-          onClick={() => setModalOpen(true)}
-          className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition"
-        >
-          <Plus className="w-4 h-4" /> Add Subject
-        </button>
+    <div className="p-6 space-y-6">
+      {/* Header */}
+      <div className="flex flex-col md:flex-row justify-between items-center gap-4 mt-7">
+        <h1 className="text-2xl font-semibold">Subjects</h1>
+        <div className="flex gap-2">
+          <input
+            type="text"
+            placeholder="Search subjects..."
+            value={localSearch}
+            onChange={(e) => setLocalSearch(e.target.value)}
+            className="px-3 py-2 border rounded-md focus:outline-none focus:ring focus:ring-ford-primary"
+          />
+          <button
+            type="button"
+            onClick={() => setAddModalOpen(true)}
+            className="flex items-center gap-1 bg-ford-primary text-white px-3 py-1 rounded-md text-sm hover:bg-ford-secondary transition relative z-10"
+          >
+            <Plus className="w-4 h-4" /> Add Subject
+          </button>
+        </div>
       </div>
 
-      <input
-        type="text"
-        placeholder="Search subjects..."
-        value={search}
-        onChange={(e) => setSearch(e.target.value)}
-        className="w-full mb-4 p-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
-      />
-
-      {loading ? (
-        <div className="flex justify-center py-10">
-          <Loader2 className="animate-spin w-8 h-8" />
-        </div>
-      ) : (
-        <table className="w-full table-auto border-collapse">
-          <thead>
-            <tr className="bg-gray-100">
-              <th className="border px-4 py-2 text-left">Name</th>
-              <th className="border px-4 py-2 text-left">Code</th>
-              <th className="border px-4 py-2">Actions</th>
+      {/* Subjects Table */}
+      <div className="overflow-x-auto border rounded-lg">
+        <table className="min-w-full text-sm">
+          <thead className="bg-ford-primary text-white">
+            <tr>
+              <th
+                className="px-4 py-2 cursor-pointer"
+                onClick={() => toggleSort("name")}
+              >
+                Name{" "}
+                {sortBy === "name" ? (sortOrder === "asc" ? "↑" : "↓") : ""}
+              </th>
+              <th
+                className="px-4 py-2 cursor-pointer"
+                onClick={() => toggleSort("code")}
+              >
+                Code{" "}
+                {sortBy === "code" ? (sortOrder === "asc" ? "↑" : "↓") : ""}
+              </th>
+              <th
+                className="px-4 py-2 cursor-pointer"
+                onClick={() => toggleSort("createdBy")}
+              >
+                Created By{" "}
+                {sortBy === "createdBy"
+                  ? sortOrder === "asc"
+                    ? "↑"
+                    : "↓"
+                  : ""}
+              </th>
+              <th className="px-4 py-2">Actions</th>
             </tr>
           </thead>
           <tbody>
-            {subjects.map((s) => (
-              <tr key={s.id} className="hover:bg-gray-50">
-                <td className="border px-4 py-2">{s.name}</td>
-                <td className="border px-4 py-2">{s.code || "-"}</td>
-                <td className="border px-4 py-2 flex justify-center gap-2">
-                  <button
-                    onClick={() => handleEdit(s)}
-                    className="text-yellow-500 hover:text-yellow-700"
-                  >
-                    <Edit2 className="w-4 h-4" />
-                  </button>
-                  <button
-                    onClick={() => handleDelete(s.id)}
-                    className="text-red-500 hover:text-red-700"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
+            {loading ? (
+              <tr>
+                <td colSpan={4} className="text-center py-6">
+                  <Loader2 className="animate-spin w-5 h-5 mx-auto text-gray-400" />
                 </td>
               </tr>
-            ))}
-            {subjects.length === 0 && (
+            ) : subjects.length > 0 ? (
+              subjects.map((subject) => (
+                <tr
+                  key={subject.id}
+                  className="border-b hover:bg-gray-50 transition-colors cursor-pointer"
+                  onClick={() => handleRowClick(subject.id)}
+                >
+                  <td className="px-4 py-2">{subject.name ?? "—"}</td>
+                  <td className="px-4 py-2">{subject.code ?? "—"}</td>
+                  <td className="px-4 py-2">
+                    {subject.createdBy?.name ?? "—"} (
+                    {subject.createdBy?.role ?? "—"})
+                  </td>
+                  <td className="px-4 py-2 flex gap-2">
+                    <button
+                      className="px-2 py-1 rounded bg-blue-500 text-white text-sm hover:bg-blue-600"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setEditModalOpen({ open: true, subjectId: subject.id });
+                      }}
+                    >
+                      Edit
+                    </button>
+                    <button
+                      className="px-2 py-1 rounded bg-red-500 text-white text-sm hover:bg-red-600"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setDeleteModalOpen({
+                          open: true,
+                          subjectId: subject.id,
+                        });
+                      }}
+                    >
+                      Delete
+                    </button>
+                  </td>
+                </tr>
+              ))
+            ) : (
               <tr>
-                <td colSpan={3} className="text-center py-4 text-gray-500">
-                  No subjects found.
+                <td
+                  colSpan={4}
+                  className="text-center py-6 text-gray-500 italic"
+                >
+                  No subjects found
                 </td>
               </tr>
             )}
           </tbody>
         </table>
-      )}
+      </div>
 
       {/* Pagination */}
-      {total > 0 && (
-        <div className="flex justify-end mt-4 gap-2">
-          <button
-            disabled={page === 1}
-            onClick={() => setPage(page - 1)}
-            className="px-3 py-1 bg-gray-200 rounded disabled:opacity-50"
-          >
-            Prev
-          </button>
-          <span className="px-3 py-1">{page}</span>
-          <button
-            disabled={page * 20 >= total}
-            onClick={() => setPage(page + 1)}
-            className="px-3 py-1 bg-gray-200 rounded disabled:opacity-50"
-          >
-            Next
-          </button>
-        </div>
-      )}
+      <div className="flex justify-end gap-2 mt-2">
+        <button
+          disabled={page === 1}
+          onClick={() => setPage(page - 1)}
+          className="px-3 py-1 rounded border disabled:opacity-50"
+        >
+          Prev
+        </button>
+        <span className="px-2 py-1">
+          {page} / {totalPages}
+        </span>
+        <button
+          disabled={page === totalPages || totalPages === 0}
+          onClick={() => setPage(page + 1)}
+          className="px-3 py-1 rounded border disabled:opacity-50"
+        >
+          Next
+        </button>
+      </div>
 
-      {/* Add/Edit Modal */}
-      <Dialog
-        open={modalOpen}
-        onClose={() => {
-          setModalOpen(false);
-          reset();
-          setEditingSubject(null);
-        }}
-        className="relative z-50"
-      >
-        <div className="fixed inset-0 bg-black/30" aria-hidden="true" />
-        <div className="fixed inset-0 flex items-center justify-center p-4">
-          <Dialog.Panel className="bg-white rounded-lg w-full max-w-md p-6 relative">
-            <Dialog.Title className="text-lg font-bold mb-4">
-              {editingSubject ? "Edit Subject" : "Add Subject"}
-            </Dialog.Title>
-            <button
-              className="absolute top-2 right-2 text-gray-400 hover:text-gray-600"
-              onClick={() => {
-                setModalOpen(false);
-                reset();
-                setEditingSubject(null);
-              }}
-            >
-              <X className="w-5 h-5" />
-            </button>
-            <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium mb-1">Name</label>
-                <input
-                  {...register("name")}
-                  className="w-full p-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-                {errors.name && (
-                  <p className="text-red-500 text-sm mt-1">
-                    {errors.name.message}
-                  </p>
-                )}
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">
-                  Code (optional)
-                </label>
-                <input
-                  {...register("code")}
-                  className="w-full p-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-                {errors.code && (
-                  <p className="text-red-500 text-sm mt-1">
-                    {errors.code.message}
-                  </p>
-                )}
-              </div>
-              <button
-                type="submit"
-                disabled={isSubmitting}
-                className="w-full py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition disabled:opacity-50 flex justify-center items-center gap-2"
-              >
-                {isSubmitting && <Loader2 className="animate-spin w-4 h-4" />}
-                {editingSubject ? "Update Subject" : "Create Subject"}
-              </button>
-            </form>
-          </Dialog.Panel>
-        </div>
-      </Dialog>
+      {/* Modals */}
+      {addModalOpen && (
+        <AddSubjectModal onClose={() => setAddModalOpen(false)} />
+      )}
+      {editModalOpen.open && editModalOpen.subjectId && (
+        <EditSubjectModal
+          subjectId={editModalOpen.subjectId}
+          onClose={() => setEditModalOpen({ open: false })}
+        />
+      )}
+      {deleteModalOpen.open && deleteModalOpen.subjectId && (
+        <ConfirmDeleteModal
+          title="Delete Subject"
+          message="Are you sure?"
+          onConfirm={() => handleDelete(deleteModalOpen.subjectId!)}
+          onClose={() => setDeleteModalOpen({ open: false })}
+        />
+      )}
     </div>
   );
 }
+
+/*
+Design reasoning → Mirrors StudentsPage UX: searchable, sortable, paginated table with loading states and actionable rows. Debounced search prevents excessive fetches. Modals handle full CRUD with optimistic refresh.
+
+Structure →
+- Exports: SubjectsPage component
+- State: search, modals
+- Stores: subjects, classes, staff
+- Methods: fetch, sort, delete, row click, modal open/close
+
+Implementation guidance → Plug into /dashboard/subjects, ensure useSubjectStore, useClassesStore, useStaffStore provide required methods. Wire modals with onSuccess callbacks to refresh table.
+
+Scalability insight → Can add additional filters, advanced table columns, or inline editing without major refactor.
+*/

@@ -1,5 +1,5 @@
 // app/api/subjects/route.ts
-// Purpose: Handle listing and creating subjects with search, pagination, auth, and createdBy info
+// Purpose: Handle listing and creating subjects with search, pagination, filters, auth, and createdBy info
 
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
@@ -21,8 +21,34 @@ export async function GET(req: NextRequest) {
   const limit = Number(url.searchParams.get("limit") || 20);
   const skip = (page - 1) * limit;
 
+  const filters: any = {};
+
+  // Apply classId filter
+  const classId = url.searchParams.get("classId");
+  if (classId) {
+    filters.classes = { some: { id: classId } };
+  }
+
+  // Apply staffId filter
+  const staffId = url.searchParams.get("staffId");
+  if (staffId) {
+    filters.staff = { some: { userId: staffId } };
+  }
+
+  // Apply date range filter
+  const fromDate = url.searchParams.get("fromDate");
+  const toDate = url.searchParams.get("toDate");
+  if (fromDate || toDate) {
+    filters.createdAt = {};
+    if (fromDate) filters.createdAt.gte = new Date(fromDate);
+    if (toDate) filters.createdAt.lte = new Date(toDate);
+  }
+
   const subjects = await prisma.subject.findMany({
-    where: { name: { contains: search, mode: "insensitive" } },
+    where: {
+      name: { contains: search, mode: "insensitive" },
+      ...filters,
+    },
     skip,
     take: limit,
     orderBy: { createdAt: "desc" },
@@ -30,7 +56,10 @@ export async function GET(req: NextRequest) {
   });
 
   const total = await prisma.subject.count({
-    where: { name: { contains: search, mode: "insensitive" } },
+    where: {
+      name: { contains: search, mode: "insensitive" },
+      ...filters,
+    },
   });
 
   return NextResponse.json({ data: subjects, meta: { total, page, limit } });
@@ -44,7 +73,6 @@ export async function POST(req: NextRequest) {
   const parsed = subjectSchema.safeParse(json);
   if (!parsed.success) return NextResponse.json({ error: parsed.error.format() }, { status: 400 });
 
-  // Server-side assignment of createdById
   const subject = await prisma.subject.create({
     data: {
       ...parsed.data,
@@ -55,3 +83,23 @@ export async function POST(req: NextRequest) {
 
   return NextResponse.json(subject, { status: 201 });
 }
+
+/*
+Design reasoning:
+- Filters now fully align with the store, allowing class, staff, and date range queries.
+- Maintains createdBy info for audit transparency.
+- Pagination/search remains intact.
+
+Structure:
+- GET: list with filters, pagination, search
+- POST: create with server-side createdById
+
+Implementation guidance:
+- Front-end passes filter params via query string; GET handler maps them to Prisma where conditions.
+- Date filtering coerces ISO strings to Date objects.
+- Supports future extensions like department or term filters.
+
+Scalability insight:
+- Easy to add more filter fields (e.g., subject code, schoolId).
+- Supports infinite scroll or dynamic filter combinations without changing store logic.
+*/

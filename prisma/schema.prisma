@@ -70,6 +70,7 @@ model School {
   finances   Finance[]
   activities Activity[]
   resources  Resource[]
+  Book       Book[]
 }
 
 model User {
@@ -83,8 +84,9 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  student Student?
-  staff   Staff?
+  student      Student?
+  staff        Staff?
+  LibraryStaff LibraryStaff?
 }
 
 model Class {
@@ -114,6 +116,7 @@ model Student {
   transactions Transaction[]
   purchases    Purchase[]
   attendances  StudentAttendance[]
+  Borrow       Borrow[]
 }
 
 model Staff {
@@ -135,9 +138,10 @@ model Staff {
 }
 
 model Department {
-  id    String  @id @default(cuid())
-  name  String  @unique
-  staff Staff[]
+  id           String         @id @default(cuid())
+  name         String         @unique
+  staff        Staff[]
+  LibraryStaff LibraryStaff[]
 }
 
 model StudentAttendance {
@@ -191,6 +195,72 @@ model Exam {
   updatedAt DateTime @updatedAt
 }
 
+// prisma/library.prisma
+// Library management models integrated with Department and School
+
+model Book {
+  id          String    @id @default(cuid())
+  title       String
+  isbn        String    @unique
+  authorId    String
+  author      Author    @relation(fields: [authorId], references: [id])
+  categoryId  String?
+  category    Category? @relation(fields: [categoryId], references: [id])
+  totalCopies Int       @default(1)
+  available   Int       @default(1)
+  schoolId    String
+  school      School    @relation(fields: [schoolId], references: [id])
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  borrows Borrow[]
+}
+
+model Author {
+  id        String   @id @default(cuid())
+  name      String
+  bio       String?
+  books     Book[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Category {
+  id        String   @id @default(cuid())
+  name      String
+  books     Book[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Borrow {
+  id         String    @id @default(cuid())
+  bookId     String
+  book       Book      @relation(fields: [bookId], references: [id])
+  studentId  String
+  student    Student   @relation(fields: [studentId], references: [id], onDelete: Cascade) // ✅ added
+  borrowedAt DateTime  @default(now())
+  dueAt      DateTime
+  returnedAt DateTime?
+  fine       Float     @default(0)
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@unique([bookId, studentId, borrowedAt], name: "unique_borrow")
+}
+
+model LibraryStaff {
+  id           String     @id @default(cuid())
+  userId       String     @unique
+  user         User       @relation(fields: [userId], references: [id])
+  departmentId String
+  department   Department @relation(fields: [departmentId], references: [id])
+  position     String?
+  hireDate     DateTime?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+}
+
 model Transaction {
   id          String      @id @default(cuid())
   studentId   String
@@ -235,7 +305,7 @@ model Resource {
 model Purchase {
   id         String   @id @default(cuid())
   studentId  String
-  student    Student  @relation(fields: [studentId], references: [id])
+  student    Student  @relation(fields: [studentId], references: [id], onDelete: Cascade) // ✅ added
   resourceId String
   resource   Resource @relation(fields: [resourceId], references: [id])
   quantity   Int      @default(1)

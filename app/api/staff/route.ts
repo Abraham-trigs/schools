@@ -4,7 +4,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { z } from "zod";
-import { cookieUser } from "@/lib/cookieUser";
+import { cookieUser } from "@/lib/cookieUser.ts";
 import { inferRoleFromPosition, inferDepartmentFromPosition, requiresClass } from "@/lib/api/constants/roleInference";
 import bcrypt from "bcryptjs";
 

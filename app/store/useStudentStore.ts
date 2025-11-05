@@ -256,17 +256,24 @@ fetchStudent: async (id) => {
     }
   },
 
-  deleteStudent: async (id) => {
-    try {
-      await axios.delete(`/api/students/${id}`);
-      set((state) => ({
-        students: state.students.filter((s) => s.id !== id),
-        student: state.student?.id === id ? null : state.student,
-      }));
-      notify.success("Student deleted successfully");
-    } catch (err: any) {
-      notify.error(err.message || "Failed to delete student");
-      throw err;
-    }
-  },
+deleteStudent: async (id) => {
+  try {
+    await axios.delete(`/api/students/${id}`);
+
+    // Remove locally
+    set((state) => ({
+      students: state.students.filter((s) => s.id !== id),
+      student: state.student?.id === id ? null : state.student,
+    }));
+
+    notify.success("Student deleted successfully");
+
+    // Refresh the list from server to avoid stale cache
+    await get().fetchStudents(get().page, get().perPage);
+  } catch (err: any) {
+    notify.error(err.response?.data?.message || err.message || "Failed to delete student");
+    throw err;
+  }
+},
+
 }));

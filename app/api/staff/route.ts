@@ -131,14 +131,13 @@ export async function POST(req: NextRequest) {
 }
 
 /* Design reasoning:
-- Multi-subject support implemented via Prisma many-to-many connect.
-- GET supports pagination, search, filtering by role/department.
-- POST ensures secure password hashing, school scoping, and proper department/class inference.
+- GET: Provides paginated, searchable, and filterable list scoped to user's school.
+- POST: Creates staff with secure password hashing, role/department inference, and multi-subject assignment.
 Structure:
-- GET: List staff with subjects included.
-- POST: Create staff with multiple subjects.
+- GET: Returns staff list with subjects, class, and department relations.
+- POST: Creates nested user and staff records in a transaction for atomicity.
 Implementation guidance:
-- Wire to front-end store (useStaffStore) expecting subjects as array of IDs.
+- Front-end should send subjects as array of IDs; POST payload can include optional hireDate, salary, and classId.
 Scalability insight:
-- Adding extra relations (e.g., additional roles or departments) can be done without changing core logic.
+- Schema and transaction pattern supports adding new relational fields (e.g., certifications, roles) without modifying core logic.
 */

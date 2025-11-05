@@ -96,14 +96,18 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
 }
 
 /* Design reasoning:
-- PUT now supports updating multiple subjects via Prisma many-to-many set.
-- DELETE ensures school scoping and prevents cross-school deletion.
+- PUT supports updating multiple subjects via Prisma many-to-many 'set', ensuring accurate assignment.
+- Department is inferred automatically to reduce manual errors.
+- DELETE ensures school scoping to prevent cross-school deletion or unauthorized removal.
+
 Structure:
-- PUT: Update staff with nested user and subjects.
-- DELETE: Remove staff safely.
+- PUT: Updates staff record, nested user fields, subjects, class, and department.
+- DELETE: Removes staff safely with school validation.
+
 Implementation guidance:
-- Front-end must send subjects as array of IDs for create/update.
-- Optimistic UI updates possible via useStaffStore.
+- Front-end should send subjects as array of IDs for PUT updates.
+- Use cookieUser for auth and enforce school scoping on every request.
+
 Scalability insight:
-- Adding additional relations or roles can be achieved without modifying core CRUD logic.
+- Supports addition of new relational fields (roles, departments) without rewriting core CRUD logic.
 */

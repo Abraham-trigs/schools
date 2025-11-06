@@ -112,16 +112,22 @@ export const useStudentStore = create<StudentStore>((set, get) => {
     },
 
     fetchStudent: async (id) => {
-      set({ loading: true, error: null });
-      try {
-        const s = await apiClient<{ data: StudentDetail }>(`/api/students/${id}`, { auth: true });
-        set({ student: s.data, loading: false });
-      } catch (err: any) {
-        const message = err.message || "Failed to fetch student";
-        set({ error: message, loading: false });
-        notify.error(message);
-      }
-    },
+  set({ loading: true, error: null });
+  try {
+    const s = await apiClient<{ data: StudentDetail }>(`/api/students/${id}`, { auth: true });
+    set({ student: s.data, loading: false });
+  } catch (err: any) {
+    let message = "Failed to fetch student";
+    if (err?.status === 403) {
+      message = "Access forbidden: you do not have permission to view this student.";
+    } else if (err?.status === 404) {
+      message = "Student not found or does not belong to your school.";
+    }
+    set({ error: message, loading: false, student: null });
+    notify.error(message);
+  }
+},
+
 
     clearStudent: () => set({ student: null, error: null }),
     setSearch: (search) => { set({ search, page: 1 }); debouncedFetch(search); },
@@ -144,13 +150,15 @@ export const useStudentStore = create<StudentStore>((set, get) => {
       notify.success(`Student removed`);
     },
 
-    addStudentAsync: async ({ name, email, password, classId }) => {
+addStudentAsync: async ({ name, email, password, classId }) => {
   const tempId = `temp-${Date.now()}`;
   const classesStore = useClassesStore.getState();
+  
+  // Temporary student for optimistic UI
   const tempStudent: StudentDetail = {
     id: tempId,
     studentId: tempId,
-    name: undefined, // keep undefined since user is nested
+    name: undefined,
     email: undefined,
     class: classesStore.classes.find((c) => c.id === classId) ?? null,
     enrolledAt: new Date().toISOString(),
@@ -158,75 +166,96 @@ export const useStudentStore = create<StudentStore>((set, get) => {
     exams: [],
     transactions: [],
     attendances: [],
-    user: { id: tempId, name, email }, // set user directly for table rendering
+    user: { id: tempId, name, email },
   };
+
   get().addStudent(tempStudent);
+  set({ loading: true, error: null });
 
-  try {
-    const data = await apiClient<{ data: StudentDetail }>("/api/students", {
-      method: "POST",
-      body: { name, email, password, classId },
-      auth: true,
-    });
+  const response = await apiClient<{ data: StudentDetail }>("/api/students", {
+    method: "POST",
+    body: { name, email, password, classId },
+    auth: true,
+  });
 
-    // Replace temp student with actual data
-    const fullStudent = {
-      ...data.data,
-      user: { id: data.data.user.id, name: data.data.user.name, email: data.data.user.email },
-    };
-    get().replaceStudent(tempId, fullStudent);
-    notify.success(`Student "${data.data.user.name}" added successfully`);
-  } catch (err: any) {
+  set({ loading: false });
+
+  if (!response?.data) {
     get().removeStudent(tempId);
-    const message = err.message || "Failed to add student";
+    set({ error: "Failed to add student" });
+    return;
+  }
+
+  // Replace temporary student with real backend data
+  const fullStudent = {
+    ...response.data,
+    user: { id: response.data.user.id, name: response.data.user.name, email: response.data.user.email },
+  };
+  get().replaceStudent(tempId, fullStudent);
+  notify.success(`Student "${fullStudent.user.name}" added successfully`);
+},
+
+
+
+ updateStudent: async (id, data) => {
+  const payload: Partial<StudentDetail> & { classId?: string | null } = {};
+  if (data.name?.trim()) payload.name = data.name.trim();
+  if (data.email?.trim()) payload.email = data.email.trim();
+  if (data.password?.trim()) payload.password = data.password;
+  if ("classId" in data) payload.classId = data.classId || null;
+
+  if (Object.keys(payload).length === 0) {
+    notify.info("No changes to update");
+    return;
+  }
+
+  set({ loading: true, error: null });
+
+  const response = await apiClient<{ data: StudentDetail }>(`/api/students/${id}`, {
+    method: "PATCH",
+    body: payload,
+    auth: true,
+  });
+
+  set({ loading: false });
+
+  if (!response?.data) {
+    set({ error: "Failed to update student" });
+    return;
+  }
+
+  set((state) => ({
+    students: state.students.map((st) => (st.id === id ? response.data : st)),
+    student: state.student?.id === id ? response.data : state.student,
+  }));
+
+  notify.success(`Student "${response.data.user?.name}" updated successfully`);
+},
+
+
+    // Inside deleteStudent
+deleteStudent: async (id) => {
+  try {
+    await apiClient(`/api/students/${id}`, { method: "DELETE", auth: true, showSuccess: true });
+    
+    // Remove from store
+    set((state) => ({
+      students: state.students.filter((s) => s.id !== id),
+      student: state.student?.id === id ? null : state.student,
+      total: state.total - 1, // update total count
+    }));
+
+    // Clear cache for current page to force refetch on return
+    set((state) => ({ cache: {} }));
+
+    await get().fetchStudents(get().page, get().perPage); // refresh current page
+  } catch (err: any) {
+    const message = err.message || "Failed to delete student";
     notify.error(message);
     throw err;
   }
 },
 
-
-    updateStudent: async (id, data) => {
-      try {
-        const payload: Partial<StudentDetail> & { classId?: string | null } = {};
-        if (data.name?.trim()) payload.name = data.name.trim();
-        if (data.email?.trim()) payload.email = data.email.trim();
-        if (data.password?.trim()) payload.password = data.password;
-        if ("classId" in data) payload.classId = data.classId || null;
-        if (Object.keys(payload).length === 0) return notify.info("No changes to update");
-
-        const s = await apiClient<{ data: StudentDetail }>(`/api/students/${id}`, {
-          method: "PATCH",
-          body: payload,
-          auth: true,
-        });
-
-        set((state) => ({
-          students: state.students.map((st) => (st.id === id ? s.data : st)),
-          student: state.student?.id === id ? s.data : state.student,
-        }));
-
-        notify.success(`Student "${s.data.name}" updated successfully`);
-      } catch (err: any) {
-        const message = err.message || "Failed to update student";
-        notify.error(message);
-        throw err;
-      }
-    },
-
-    deleteStudent: async (id) => {
-      try {
-        await apiClient(`/api/students/${id}`, { method: "DELETE", auth: true, showSuccess: true });
-        set((state) => ({
-          students: state.students.filter((s) => s.id !== id),
-          student: state.student?.id === id ? null : state.student,
-        }));
-        await get().fetchStudents(get().page, get().perPage);
-      } catch (err: any) {
-        const message = err.message || "Failed to delete student";
-        notify.error(message);
-        throw err;
-      }
-    },
   };
 });
 

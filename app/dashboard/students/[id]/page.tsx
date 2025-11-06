@@ -1,6 +1,3 @@
-// app/dashboard/students/[id]/page.tsx
-// Purpose: Display student details with optimistic updates for related entities, plus edit/delete and safe 403 handling.
-
 "use client";
 
 import { useEffect, useState } from "react";
@@ -9,6 +6,7 @@ import { Loader2, ArrowLeft, Edit, Trash2 } from "lucide-react";
 import { useStudentStore, StudentDetail } from "@/app/store/useStudentStore";
 import ConfirmDeleteModal from "@/app/dashboard/students/components/ConfirmDeleteModal.tsx";
 import EditStudentModal from "../components/EditStudentModal";
+import { notify } from "@/lib/helpers/notifications";
 
 const AttendancesStatus = {
   PRESENT: "PRESENT",
@@ -29,37 +27,15 @@ export default function StudentDetailPage() {
     fetchStudent,
     updateStudent,
     deleteStudent,
-    updateAttendance,
-    updateParent,
-    updateExam,
-    updateTransaction,
   } = useStudentStore();
 
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
-  const [localError, setLocalError] = useState<string | null>(null);
 
-  // Fetch student with 403 handling
   useEffect(() => {
     if (!studentId) return;
-
-    const fetch = async () => {
-      setLocalError(null);
-      try {
-        await fetchStudent(studentId);
-      } catch (err: any) {
-        if (err?.status === 403) {
-          setLocalError(
-            "Access forbidden: you do not have permission to view this student."
-          );
-        } else {
-          setLocalError(err?.message || "Failed to load student.");
-        }
-      }
-    };
-
-    fetch();
+    fetchStudent(studentId);
   }, [studentId, fetchStudent]);
 
   const handleEdit = () => setIsEditOpen(true);
@@ -70,11 +46,16 @@ export default function StudentDetailPage() {
   const handleDeleteConfirmed = async () => {
     if (!student) return;
     setIsDeleting(true);
+
     try {
       await deleteStudent(student.id);
       router.replace("/dashboard/students");
-    } catch (err: any) {
-      console.error(err?.message || "Failed to delete student");
+      notify.success(
+        `Student "${student.user?.name ?? student.name}" deleted successfully.`
+      );
+    } catch (err) {
+      console.error("Failed to delete student", err);
+      notify.error("Failed to delete student. Please try again.");
     } finally {
       setIsDeleting(false);
       closeDelete();
@@ -85,72 +66,11 @@ export default function StudentDetailPage() {
     if (!student) return;
     try {
       await updateStudent(student.id, data);
-    } catch (err: any) {
-      console.error(err?.message || "Failed to update student");
     } finally {
       closeEdit();
     }
   };
 
-  // --- Optimistic updates ---
-  const handleAttendanceUpdate = (
-    id: string,
-    status: keyof typeof AttendancesStatus
-  ) => {
-    if (!student) return;
-
-    // Optimistically update UI
-    const originalAttendances = student.attendances ?? [];
-    const updatedAttendances = originalAttendances.map((a) =>
-      a.id === id ? { ...a, status } : a
-    );
-
-    updateAttendance(student.id, id, status); // async call to backend
-    student.attendances = updatedAttendances;
-  };
-
-  const handleParentUpdate = (
-    email: string,
-    updates: Partial<{ name: string; phone?: string }>
-  ) => {
-    if (!student) return;
-
-    const originalParents = student.parents ?? [];
-    const updatedParents = originalParents.map((p) =>
-      p.email === email ? { ...p, ...updates } : p
-    );
-
-    updateParent(student.id, email, updates);
-    student.parents = updatedParents;
-  };
-
-  const handleExamUpdate = (
-    index: number,
-    updates: Partial<{ score: number; maxScore: number }>
-  ) => {
-    if (!student?.exams) return;
-
-    const updatedExams = [...student.exams];
-    updatedExams[index] = { ...updatedExams[index], ...updates };
-
-    updateExam(student.id, index, updates);
-    student.exams = updatedExams;
-  };
-
-  const handleTransactionUpdate = (
-    index: number,
-    updates: Partial<{ amount: number; description?: string }>
-  ) => {
-    if (!student?.transactions) return;
-
-    const updatedTransactions = [...student.transactions];
-    updatedTransactions[index] = { ...updatedTransactions[index], ...updates };
-
-    updateTransaction(student.id, index, updates);
-    student.transactions = updatedTransactions;
-  };
-
-  // --- Render states ---
   if (!studentId)
     return (
       <div className="text-center mt-6 text-red-500">
@@ -165,13 +85,16 @@ export default function StudentDetailPage() {
       </div>
     );
 
-  if (localError)
-    return <div className="text-red-500 mt-6 text-center">{localError}</div>;
+  if (error)
+    return <div className="text-red-500 mt-6 text-center">{error}</div>;
 
   if (!student)
     return (
       <div className="text-center mt-6 text-gray-500">Student not found</div>
     );
+
+  const studentName = student.user?.name ?? student.name;
+  const studentEmail = student.user?.email ?? student.email;
 
   const summary =
     student.attendancesSummary ||
@@ -187,7 +110,7 @@ export default function StudentDetailPage() {
     );
 
   return (
-    <div className="p-6 space-y-6 max-w-4xl mx-auto">
+    <div className="p-6 space-y-6 max-w-4xl mx-auto mt-7">
       {/* Header */}
       <header className="flex justify-between items-center flex-wrap gap-3">
         <button
@@ -212,8 +135,88 @@ export default function StudentDetailPage() {
         </div>
       </header>
 
-      {/* Student Info, Attendance, Parents, Exams, Transactions */}
-      {/* Same as previous file; attach optimistic handlers to appropriate components */}
+      {/* Student Info */}
+      <div className="bg-white shadow rounded-lg p-6 space-y-4">
+        <h1 className="text-2xl font-semibold">{studentName}</h1>
+        <div className="grid grid-cols-2 gap-4 text-sm text-gray-700">
+          <div>
+            <span className="font-medium">Email:</span> {studentEmail}
+          </div>
+          <div>
+            <span className="font-medium">Class:</span>{" "}
+            {student.class?.name ?? "—"}
+          </div>
+          <div>
+            <span className="font-medium">Enrolled:</span>{" "}
+            {student.enrolledAt
+              ? new Date(student.enrolledAt).toLocaleDateString()
+              : "—"}
+          </div>
+        </div>
+      </div>
+
+      {/* Attendance Summary */}
+      <div className="bg-white shadow rounded-lg p-6 grid grid-cols-5 text-center text-gray-700">
+        <div>
+          <span className="font-medium block">Total</span>
+          {summary.total}
+        </div>
+        {Object.values(AttendancesStatus).map((status) => (
+          <div key={status}>
+            <span className="font-medium block">{status}</span>
+            {summary[status.toLowerCase()] ?? 0}
+          </div>
+        ))}
+      </div>
+
+      {/* Parents */}
+      <div className="bg-white shadow rounded-lg p-6 space-y-2">
+        <h2 className="text-xl font-medium">Parents</h2>
+        {student.parents?.length ? (
+          <ul className="list-disc list-inside text-gray-700">
+            {student.parents.map((p) => (
+              <li key={p.email}>
+                {p.name} — {p.email} {p.phone ? `— ${p.phone}` : ""}
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="text-gray-500 italic">No parents recorded</p>
+        )}
+      </div>
+
+      {/* Exams */}
+      <div className="bg-white shadow rounded-lg p-6 space-y-2">
+        <h2 className="text-xl font-medium">Exams</h2>
+        {student.exams?.length ? (
+          <ul className="list-disc list-inside text-gray-700">
+            {student.exams.map((e, idx) => (
+              <li key={idx}>
+                {e.subject ?? `Exam ${idx + 1}`}: {e.score}/{e.maxScore}
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="text-gray-500 italic">No exams recorded</p>
+        )}
+      </div>
+
+      {/* Transactions */}
+      <div className="bg-white shadow rounded-lg p-6 space-y-2">
+        <h2 className="text-xl font-medium">Transactions</h2>
+        {student.transactions?.length ? (
+          <ul className="list-disc list-inside text-gray-700">
+            {student.transactions.map((t, idx) => (
+              <li key={idx}>
+                {t.type ?? "-"} — {t.amount} — {t.description ?? "-"} —{" "}
+                {t.date ? new Date(t.date).toLocaleDateString() : "-"}
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="text-gray-500 italic">No transactions recorded</p>
+        )}
+      </div>
 
       {/* Modals */}
       {isEditOpen && student && (
@@ -236,37 +239,3 @@ export default function StudentDetailPage() {
     </div>
   );
 }
-
-// Design reasoning → Structure → Implementation guidance → Scalability insight
-
-// Design reasoning:
-
-// UI updates immediately on edits to attendances, parents, exams, and transactions.
-
-// Backend calls happen asynchronously; errors can be caught and optionally rolled back.
-
-// Maintains safe modals and error handling for forbidden access.
-
-// Structure:
-
-// Optimistic update handlers for each related entity (handleAttendanceUpdate, handleParentUpdate, etc.).
-
-// Original store calls are maintained to propagate changes to the backend.
-
-// UI rendering unchanged; handlers inject temporary updated state.
-
-// Implementation guidance:
-
-// Always clone arrays/objects for optimistic updates to avoid mutating store references directly.
-
-// Catch and log backend errors; optionally, add a rollback if API fails.
-
-// Attach optimistic handlers to corresponding editable components in the UI.
-
-// Scalability insight:
-
-// Pattern can be applied to any new child entity (e.g., awards, remarks).
-
-// Allows frontend responsiveness without backend changes.
-
-// Rollback mechanism can be centralized for more complex multi-step updates.

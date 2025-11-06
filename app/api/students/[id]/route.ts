@@ -1,6 +1,3 @@
-// app/api/students/[id]/route.ts
-// Purpose: Handle single student operations (GET, PATCH, DELETE) with domain-based access control
-
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { cookieUser } from "@/lib/cookieUser";
@@ -8,6 +5,7 @@ import { Role, AttendanceStatus } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import { z } from "zod";
 
+// --- Validation schema for PATCH ---
 const studentUpdateSchema = z.object({
   name: z.string().optional(),
   email: z.string().email().optional(),
@@ -15,14 +13,23 @@ const studentUpdateSchema = z.object({
   classId: z.string().nullable().optional(),
 });
 
-export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
-  const user = await cookieUser(req);
+// --- Helper to get studentId safely ---
+async function resolveParams(context: { params: any }) {
+  const params = await context.params;
+  return params.id;
+}
+
+// --- GET student ---
+export async function GET(req: NextRequest, context: { params: any }) {
+  const studentId = await resolveParams(context);
+
+  const user = await cookieUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const student = await prisma.student.findUnique({
-    where: { id: params.id },
+  const student = await prisma.student.findFirst({
+    where: { id: studentId, user: { schoolId: user.schoolId } },
     include: {
-      user: { include: { school: true } },
+      user: true,
       class: true,
       parents: true,
       exams: true,
@@ -31,8 +38,8 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
     },
   });
 
-  if (!student) return NextResponse.json({ error: "Student not found" }, { status: 404 });
-  if (student.user.school.id !== user.schoolId) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  if (!student)
+    return NextResponse.json({ error: "Student not found or access forbidden" }, { status: 404 });
 
   const summary = {
     total: student.attendances.length,
@@ -45,54 +52,68 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
   return NextResponse.json({ data: student, attendancesSummary: summary });
 }
 
-export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
-  const user = await cookieUser(req);
+// --- PATCH student ---
+export async function PATCH(req: NextRequest, context: { params: any }) {
+  const studentId = await resolveParams(context);
+
+  const user = await cookieUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   if (![Role.ADMIN, Role.PRINCIPAL, Role.TEACHER].includes(user.role))
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
-  try {
-    const body = await req.json();
-    const data = studentUpdateSchema.parse(body);
+  const body = await req.json();
+  const data = studentUpdateSchema.parse(body);
 
-    const updateData: any = {};
-    if ("classId" in data) updateData.classId = data.classId;
+  const updateData: any = {};
+  if ("classId" in data) updateData.classId = data.classId;
 
-    const userData: any = {};
-    if (data.name) userData.name = data.name;
-    if (data.email) userData.email = data.email;
-    if (data.password) userData.password = await bcrypt.hash(data.password, 10);
+  const userData: any = {};
+  if (data.name) userData.name = data.name;
+  if (data.email) userData.email = data.email;
+  if (data.password) userData.password = await bcrypt.hash(data.password, 10);
 
-    const updated = await prisma.$transaction(async (tx) => {
-      const student = await tx.student.update({
-        where: { id: params.id },
-        data: updateData,
-        include: { user: true, class: true, parents: true, exams: true, transactions: true, attendances: true },
-      });
-      if (Object.keys(userData).length > 0)
-        await tx.user.update({ where: { id: student.userId }, data: userData });
-      return student;
+  const updated = await prisma.$transaction(async (tx) => {
+    const studentCount = await tx.student.count({
+      where: { id: studentId, user: { schoolId: user.schoolId } },
     });
+    if (studentCount === 0) throw new Error("Student not found or access forbidden");
 
-    return NextResponse.json({ data: updated });
-  } catch (err: any) {
-    return NextResponse.json({ error: err.message || "Failed to update student" }, { status: 400 });
-  }
+    if (Object.keys(updateData).length > 0)
+      await tx.student.update({
+        where: { id: studentId },
+        data: updateData,
+      });
+
+    if (Object.keys(userData).length > 0) {
+      const student = await tx.student.findUnique({ where: { id: studentId } });
+      if (!student) throw new Error("Student not found during update");
+      await tx.user.update({ where: { id: student.userId }, data: userData });
+    }
+
+    return tx.student.findUnique({
+      where: { id: studentId },
+      include: { user: true, class: true, parents: true, exams: true, transactions: true, attendances: true },
+    });
+  });
+
+  return NextResponse.json({ data: updated });
 }
 
-export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
-  const user = await cookieUser(req);
+// --- DELETE student ---
+export async function DELETE(req: NextRequest, context: { params: any }) {
+  const studentId = await resolveParams(context);
+
+  const user = await cookieUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   if (![Role.ADMIN, Role.PRINCIPAL].includes(user.role))
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
-  await prisma.student.delete({ where: { id: params.id } });
+  const deleted = await prisma.student.deleteMany({
+    where: { id: studentId, user: { schoolId: user.schoolId } },
+  });
+
+  if (deleted.count === 0)
+    return NextResponse.json({ error: "Student not found or access forbidden" }, { status: 404 });
+
   return NextResponse.json({ data: "Student deleted" }, { status: 200 });
 }
-
-/*
-Design reasoning → Full CRUD per student with transactional PATCH; domain-level auth; ensures data consistency and user/student sync.
-Structure → GET (summary), PATCH (transactional update), DELETE
-Implementation guidance → Connect with store fetchStudent/updateStudent/deleteStudent; use optimistic UI updates for PATCH
-Scalability insight → Partial updates, role-based field visibility, additional related entities (exams, parents) easily extendable
-*/

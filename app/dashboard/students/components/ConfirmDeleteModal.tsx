@@ -9,8 +9,7 @@ interface ConfirmDeleteModalProps {
   isOpen: boolean;
   student: StudentDetail | null;
   onClose: () => void;
-  loading?: boolean;
-  onConfirm?: () => void; // optional external confirm callback
+  onConfirm?: () => Promise<void>; // optional external confirm callback
 }
 
 export default function ConfirmDeleteModal({
@@ -23,6 +22,7 @@ export default function ConfirmDeleteModal({
   const [isDeleting, setIsDeleting] = useState(false);
   const dialogRef = useRef<HTMLDivElement>(null);
 
+  // Autofocus the first button on open
   useEffect(() => {
     if (isOpen && dialogRef.current) {
       const firstButton = dialogRef.current.querySelector("button");
@@ -35,12 +35,20 @@ export default function ConfirmDeleteModal({
   const handleConfirm = async () => {
     try {
       setIsDeleting(true);
+
       if (onConfirm) {
+        // Use external confirm callback if provided
         await onConfirm();
       } else {
+        // Default: delete via store
         await deleteStudent(student.id);
-        notify.success(`Student "${student.name}" deleted successfully.`);
+        notify.success(
+          `Student "${
+            student.user?.name ?? student.name
+          }" deleted successfully.`
+        );
       }
+
       onClose();
     } catch (err) {
       console.error("Delete failed", err);
@@ -70,7 +78,10 @@ export default function ConfirmDeleteModal({
         </h2>
         <p className="text-gray-600 mb-4">
           Are you sure you want to delete{" "}
-          <span className="font-medium text-gray-900">{student.name}</span>?
+          <span className="font-medium text-gray-900">
+            {student.user?.name ?? student.name}
+          </span>
+          ?
           <br />
           This action cannot be undone.
         </p>

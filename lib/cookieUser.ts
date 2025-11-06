@@ -35,6 +35,7 @@ export async function cookieUser() {
 
     return {
       ...user,
+      schoolId: user.school.id,
       schoolDomain: user.school.domain, // top-level convenience
     };
   } catch (err) {

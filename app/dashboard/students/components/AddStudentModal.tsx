@@ -1,3 +1,6 @@
+// app/dashboard/students/components/AddStudentModal.tsx
+// Purpose: Modal for adding a student with validation and class selection
+
 "use client";
 
 import { useState, useEffect } from "react";
@@ -15,12 +18,16 @@ interface AddStudentModalProps {
   isOpen: boolean;
   onClose: () => void;
   schoolDomain: string;
+  onSuccess?: () => void;
+  classId?: string;
 }
 
 export default function AddStudentModal({
   isOpen,
   onClose,
   schoolDomain,
+  onSuccess,
+  classId,
 }: AddStudentModalProps) {
   const { classes, fetchClasses } = useClassesStore();
   const { addStudentAsync } = useStudentStore();
@@ -28,14 +35,13 @@ export default function AddStudentModal({
   const [name, setName] = useState("");
   const [emailPrefix, setEmailPrefix] = useState("");
   const [password, setPassword] = useState("");
-  const [selectedClass, setSelectedClass] = useState("");
+  const [selectedClass, setSelectedClass] = useState(classId ?? "");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
   // Load classes when modal opens
   useEffect(() => {
-    if (!isOpen) return null;
-
+    if (!isOpen) return; // ✅ fixed: do not return null
     fetchClasses().catch(() => setError("Failed to load classes"));
   }, [isOpen, fetchClasses]);
 
@@ -73,6 +79,7 @@ export default function AddStudentModal({
       setPassword("");
       setSelectedClass(classes[0]?.id ?? "");
       onClose();
+      onSuccess?.();
     } catch (err: any) {
       setError(err.message || "Failed to add student");
     } finally {

@@ -1,5 +1,5 @@
 // app/api/staff/[id]/route.ts
-// Purpose: Update or delete a staff member securely, supporting multiple subjects, enforcing school scoping, nested user updates, and department inference.
+// Purpose: Update or delete a staff member scoped to authenticated user's school using schoolDomain, supporting multiple subjects and department inference.
 
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
@@ -18,7 +18,7 @@ const staffUpdateSchema = z.object({
 
 // ------------------------- PUT: Update staff -------------------------
 export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
-  const currentUser = await cookieUser(req);
+  const currentUser = await cookieUser();
   if (!currentUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   try {
@@ -31,7 +31,7 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     });
     if (!staff) return NextResponse.json({ error: "Staff not found" }, { status: 404 });
 
-    if (staff.user.schoolId !== currentUser.school.id)
+    if (staff.user.school.domain !== currentUser.schoolDomain)
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
     const departmentName = data.position ? inferDepartmentFromPosition(data.position) : null;
@@ -75,7 +75,7 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
 
 // ------------------------- DELETE: Remove staff -------------------------
 export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
-  const currentUser = await cookieUser(req);
+  const currentUser = await cookieUser();
   if (!currentUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const staff = await prisma.staff.findUnique({
@@ -84,7 +84,7 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
   });
   if (!staff) return NextResponse.json({ error: "Staff not found" }, { status: 404 });
 
-  if (staff.user.schoolId !== currentUser.school.id)
+  if (staff.user.school.domain !== currentUser.schoolDomain)
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   try {
@@ -96,18 +96,15 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
 }
 
 /* Design reasoning:
-- PUT supports updating multiple subjects via Prisma many-to-many 'set', ensuring accurate assignment.
-- Department is inferred automatically to reduce manual errors.
-- DELETE ensures school scoping to prevent cross-school deletion or unauthorized removal.
-
+- All routes now enforce schoolDomain scoping to prevent cross-school access.
+- PUT supports updating multiple subjects and auto department inference.
+- DELETE safely removes staff scoped to the current user's school.
 Structure:
-- PUT: Updates staff record, nested user fields, subjects, class, and department.
-- DELETE: Removes staff safely with school validation.
-
+- PUT: Updates staff record with nested user fields, subjects, class, and department.
+- DELETE: Removes staff safely with schoolDomain validation.
 Implementation guidance:
-- Front-end should send subjects as array of IDs for PUT updates.
-- Use cookieUser for auth and enforce school scoping on every request.
-
+- Front-end sends subjects as array of IDs for PUT updates.
+- Always use cookieUser() to fetch current user info.
 Scalability insight:
-- Supports addition of new relational fields (roles, departments) without rewriting core CRUD logic.
+- Adding new relational fields or roles requires no changes to core CRUD logic.
 */

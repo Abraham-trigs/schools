@@ -41,12 +41,24 @@ export const useUserStore = create<UserStoreState>()(
         set({ loading: true, error: null });
         try {
           const res = await fetch("/api/auth/me", { credentials: "include" });
-          const data = await res.json();
-          if (!res.ok) throw new Error(data?.error || "Failed to fetch user");
-          set({ user: data.user, loading: false });
+          let data: any = {};
+          try {
+            data = await res.json();
+          } catch {
+            // In case response is not JSON
+            data = {};
+          }
+
+          if (!res.ok) {
+            const message =
+              typeof data?.error === "string" ? data.error : "Failed to fetch user";
+            throw new Error(message);
+          }
+
+          set({ user: data.user ?? null, loading: false });
         } catch (err: any) {
           console.error("fetchUser error:", err);
-          set({ error: err.message, loading: false });
+          set({ user: null, loading: false, error: err?.message || "Unknown error" });
         }
       },
 

@@ -1,3 +1,6 @@
+// app/dashboard/students/page.tsx
+// Purpose: Students dashboard page with search, sort, pagination, and AddStudent modal
+
 "use client";
 
 import { useEffect, useState } from "react";
@@ -21,7 +24,6 @@ export default function StudentsPage() {
     page,
     perPage,
     loading,
-    error,
     fetchStudents,
     sortBy,
     sortOrder,
@@ -32,39 +34,31 @@ export default function StudentsPage() {
 
   const totalPages = Math.ceil(total / perPage);
 
-  // Fetch students on mount
   useEffect(() => {
     fetchStudents(page, perPage);
-  }, [fetchStudents]);
+  }, [fetchStudents, page, perPage]);
 
   // Debounced search
   useEffect(() => {
     const handler = setTimeout(() => {
-      setPage(1); // reset to first page on new search
-      setSearch(localSearch); // triggers fetchStudents internally
+      setPage(1);
+      setSearch(localSearch);
     }, 300);
     return () => clearTimeout(handler);
-  }, [localSearch]);
+  }, [localSearch, setPage, setSearch]);
 
-  // AddStudent success callback
-  const handleSuccess = () => {
-    fetchStudents(page, perPage); // refresh students after adding
-  };
-
-  // Navigate to student detail page
   const handleRowClick = (student: StudentDetail) => {
-    router.push(`/dashboard/students/${student.id}`); // use student.id, not studentId
+    router.push(`/dashboard/students/${student.id}`);
   };
 
-  // Toggle sorting for table headers
   const toggleSort = (key: "name" | "email" | "class") => {
-    const order = sortBy === key && sortOrder === "asc" ? "desc" : "asc";
-    setSort(key, order);
+    const sortKey = key === "class" ? "class" : key;
+    const order = sortBy === sortKey && sortOrder === "asc" ? "desc" : "asc";
+    setSort(sortKey as "name" | "email" | "createdAt", order);
   };
 
   return (
-    <div className="p-6 space-y-6 ">
-      {/* Header */}
+    <div className="p-6 space-y-6">
       <div className="flex flex-col md:flex-row justify-between items-center gap-4 mt-7">
         <h1 className="text-2xl font-semibold">Students</h1>
         <div className="flex gap-2">
@@ -85,7 +79,6 @@ export default function StudentsPage() {
         </div>
       </div>
 
-      {/* Students Table */}
       <div className="overflow-x-auto border rounded-lg">
         <table className="min-w-full text-sm">
           <thead className="bg-ford-primary text-white">
@@ -116,7 +109,7 @@ export default function StudentsPage() {
           </thead>
           <tbody>
             {loading ? (
-              <tr>
+              <tr key="loading">
                 <td colSpan={4} className="text-center py-6">
                   <Loader2 className="animate-spin w-5 h-5 mx-auto text-gray-400" />
                 </td>
@@ -124,12 +117,12 @@ export default function StudentsPage() {
             ) : students.length > 0 ? (
               students.map((s) => (
                 <tr
-                  key={s.studentId}
+                  key={s.id} // stable unique ID
                   className="border-b hover:bg-gray-50 transition-colors cursor-pointer"
                   onClick={() => handleRowClick(s)}
                 >
-                  <td className="px-4 py-2">{s.name ?? "—"}</td>
-                  <td className="px-4 py-2">{s.email ?? "—"}</td>
+                  <td className="px-4 py-2">{s.user?.name ?? "—"}</td>
+                  <td className="px-4 py-2">{s.user?.email ?? "—"}</td>
                   <td className="px-4 py-2">{s.class?.name ?? "—"}</td>
                   <td className="px-4 py-2">
                     {s.enrolledAt
@@ -139,7 +132,7 @@ export default function StudentsPage() {
                 </tr>
               ))
             ) : (
-              <tr>
+              <tr key="empty">
                 <td
                   colSpan={4}
                   className="text-center py-6 text-gray-500 italic"
@@ -152,7 +145,6 @@ export default function StudentsPage() {
         </table>
       </div>
 
-      {/* Pagination */}
       <div className="flex justify-end gap-2 mt-2">
         <button
           disabled={page === 1}
@@ -173,14 +165,20 @@ export default function StudentsPage() {
         </button>
       </div>
 
-      {/* Add Student Modal */}
       <AddStudentModal
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
         schoolDomain={user?.schoolDomain ?? "myschool.com"}
-        onSuccess={handleSuccess}
+        onSuccess={() => fetchStudents(page, perPage)}
         classId={selectedClassId ?? ""}
       />
     </div>
   );
 }
+
+/*
+Design reasoning → Now correctly accesses nested `user` fields for name/email, ensuring table shows all info; keys added for all rows to satisfy React.
+Structure → Exports default StudentsPage; hooks for store/router/local state; renders table, pagination, and modal.
+Implementation guidance → Drop-in replacement; no backend change required; all rows have stable keys; empty/loading rows keyed.
+Scalability insight → Works with additional nested relations; any new optional fields can be safely displayed without breaking React keys.
+*/

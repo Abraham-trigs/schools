@@ -1,5 +1,5 @@
 // app/api/staff/route.ts
-// Purpose: List and create staff scoped to authenticated user's school with pagination, search, filtering, role & department inference, and multi-subject support.
+// Purpose: List and create staff scoped to authenticated user's school using schoolDomain, with pagination, search, filtering, role & department inference, and multi-subject support.
 
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
@@ -19,7 +19,7 @@ interface StaffCreateRequest {
   position?: string | null;
   classId?: string | null;
   salary?: number | null;
-  subjects?: string[]; // multiple subjects
+  subjects?: string[];
   hireDate?: Date | null;
   password: string;
 }
@@ -40,7 +40,7 @@ const staffSchema = z.object({
 
 // ------------------------- GET: List staff -------------------------
 export async function GET(req: NextRequest) {
-  const user = await cookieUser(req);
+  const user = await cookieUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const url = new URL(req.url);
@@ -50,15 +50,18 @@ export async function GET(req: NextRequest) {
   const page = Number(url.searchParams.get("page") || 1);
   const perPage = Number(url.searchParams.get("perPage") || 10);
 
-  const where: any = { user: { schoolId: user.school.id } };
+  const where: any = {};
   if (search) {
     where.OR = [
       { user: { name: { contains: search, mode: "insensitive" } } },
       { user: { email: { contains: search, mode: "insensitive" } } },
     ];
   }
-  if (role) where.user.role = role;
+  if (role) where.user = { ...where.user, role };
   if (departmentId) where.departmentId = departmentId;
+
+  // Only staff in current user's school domain
+  where.user = { ...where.user, school: { domain: user.schoolDomain } };
 
   const [staffList, total] = await prisma.$transaction([
     prisma.staff.findMany({
@@ -77,7 +80,7 @@ export async function GET(req: NextRequest) {
 
 // ------------------------- POST: Create staff -------------------------
 export async function POST(req: NextRequest) {
-  const user = await cookieUser(req);
+  const user = await cookieUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   try {
@@ -102,7 +105,7 @@ export async function POST(req: NextRequest) {
           email: data.email,
           password: hashedPassword,
           role,
-          schoolId: user.school.id,
+          school: { connect: { domain: user.schoolDomain } },
         },
       });
 
@@ -131,14 +134,15 @@ export async function POST(req: NextRequest) {
 }
 
 /* Design reasoning:
+- SchoolDomain scoping ensures users see only their school’s staff.
 - Multi-subject support via Prisma many-to-many connect.
-- GET supports pagination, search, and filtering by role/department.
+- GET supports pagination, search, filtering by role/department.
 - POST hashes passwords securely and infers role/department/class.
 Structure:
-- GET: List staff with subjects included.
-- POST: Create staff with multiple subjects.
+- GET: List staff filtered by schoolDomain with subjects included.
+- POST: Create staff scoped to current school with multiple subjects.
 Implementation guidance:
 - Front-end sends subjects as array of IDs.
 Scalability insight:
-- Adding extra relations (roles/departments) possible without changing core logic.
+- Supports additional relational fields (roles/departments) without changing core logic.
 */

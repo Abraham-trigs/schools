@@ -1,14 +1,13 @@
 // app/api/students/[id]/route.ts
-// Handles single student fetch, update, and deletion with user-student transactional updates
+// Purpose: Handle single student operations (GET, PATCH, DELETE) with domain-based access control
 
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { cookieUser } from "@/lib/cookieUser";
 import { Role, AttendanceStatus } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import { z } from "zod";
 
-// Zod schema for PATCH updates
 const studentUpdateSchema = z.object({
   name: z.string().optional(),
   email: z.string().email().optional(),
@@ -16,52 +15,41 @@ const studentUpdateSchema = z.object({
   classId: z.string().nullable().optional(),
 });
 
-// GET single student + attendances summary
-export async function GET(req: Request, { params }: { params: { id: string } }) {
+export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
   const user = await cookieUser(req);
-  if (!user) return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const student = await prisma.student.findUnique({
     where: { id: params.id },
     include: {
-      user: true,
+      user: { include: { school: true } },
       class: true,
       parents: true,
       exams: true,
       transactions: true,
-      attendances: {
-        orderBy: { date: "desc" },
-        take: 30,
-      },
+      attendances: { orderBy: { date: "desc" }, take: 30 },
     },
   });
 
-  if (!student) return NextResponse.json({ message: "Student not found" }, { status: 404 });
-  if (student.user.schoolId !== user.schoolId)
-    return NextResponse.json({ message: "Forbidden" }, { status: 403 });
+  if (!student) return NextResponse.json({ error: "Student not found" }, { status: 404 });
+  if (student.user.school.id !== user.schoolId) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
-  // Attendances summary
-  const totalRecords = student.attendances.length;
   const summary = {
-    total: totalRecords,
+    total: student.attendances.length,
     present: student.attendances.filter(a => a.status === AttendanceStatus.PRESENT).length,
     absent: student.attendances.filter(a => a.status === AttendanceStatus.ABSENT).length,
     late: student.attendances.filter(a => a.status === AttendanceStatus.LATE).length,
     excused: student.attendances.filter(a => a.status === AttendanceStatus.EXCUSED).length,
   };
 
-  return NextResponse.json({
-    ...student,
-    attendancesSummary: summary,
-  });
+  return NextResponse.json({ data: student, attendancesSummary: summary });
 }
 
-// PATCH update student
-export async function PATCH(req: Request, { params }: { params: { id: string } }) {
+export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
   const user = await cookieUser(req);
-  if (!user) return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   if (![Role.ADMIN, Role.PRINCIPAL, Role.TEACHER].includes(user.role))
-    return NextResponse.json({ message: "Forbidden" }, { status: 403 });
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   try {
     const body = await req.json();
@@ -75,50 +63,36 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     if (data.email) userData.email = data.email;
     if (data.password) userData.password = await bcrypt.hash(data.password, 10);
 
-    // Transaction to update student and user together
     const updated = await prisma.$transaction(async (tx) => {
       const student = await tx.student.update({
         where: { id: params.id },
         data: updateData,
-        include: { user: true, class: true },
+        include: { user: true, class: true, parents: true, exams: true, transactions: true, attendances: true },
       });
-
-      if (Object.keys(userData).length > 0) {
-        await tx.user.update({
-          where: { id: student.userId },
-          data: userData,
-        });
-      }
-
-      return tx.student.findUnique({
-        where: { id: params.id },
-        include: {
-          user: true,
-          class: true,
-          parents: true,
-          exams: true,
-          transactions: true,
-          attendances: true,
-        },
-      });
+      if (Object.keys(userData).length > 0)
+        await tx.user.update({ where: { id: student.userId }, data: userData });
+      return student;
     });
 
-    return NextResponse.json(updated);
+    return NextResponse.json({ data: updated });
   } catch (err: any) {
-    return NextResponse.json(
-      { message: err.message || "Failed to update student" },
-      { status: 400 }
-    );
+    return NextResponse.json({ error: err.message || "Failed to update student" }, { status: 400 });
   }
 }
 
-// DELETE student
-export async function DELETE(req: Request, { params }: { params: { id: string } }) {
+export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
   const user = await cookieUser(req);
-  if (!user) return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   if (![Role.ADMIN, Role.PRINCIPAL].includes(user.role))
-    return NextResponse.json({ message: "Forbidden" }, { status: 403 });
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   await prisma.student.delete({ where: { id: params.id } });
-  return NextResponse.json({ message: "Student deleted" }, { status: 200 });
+  return NextResponse.json({ data: "Student deleted" }, { status: 200 });
 }
+
+/*
+Design reasoning → Full CRUD per student with transactional PATCH; domain-level auth; ensures data consistency and user/student sync.
+Structure → GET (summary), PATCH (transactional update), DELETE
+Implementation guidance → Connect with store fetchStudent/updateStudent/deleteStudent; use optimistic UI updates for PATCH
+Scalability insight → Partial updates, role-based field visibility, additional related entities (exams, parents) easily extendable
+*/

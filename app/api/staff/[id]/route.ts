@@ -1,5 +1,5 @@
 // app/api/staff/[id]/route.ts
-// Purpose: Update or delete a staff member scoped to authenticated user's school using schoolDomain, supporting multiple subjects and department inference.
+// Purpose: Update or delete a staff member scoped to authenticated user's school using schoolId, supporting multiple subjects and department inference.
 
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
@@ -31,7 +31,8 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     });
     if (!staff) return NextResponse.json({ error: "Staff not found" }, { status: 404 });
 
-    if (staff.user.school.domain !== currentUser.schoolDomain)
+    // ✅ Use schoolId for scoping
+    if (staff.user.schoolId !== currentUser.schoolId)
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
     const departmentName = data.position ? inferDepartmentFromPosition(data.position) : null;
@@ -43,23 +44,23 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
       position: data.position ?? staff.position,
       departmentId: department?.id ?? null,
       classId: requiresClass(data.position) ? data.classId ?? null : null,
+      subjects: data.subjects ? { set: data.subjects.map((id) => ({ id })) } : undefined,
     };
 
-    if (data.subjects) {
-      updateData.subjects = { set: data.subjects.map((id) => ({ id })) };
-    }
+    const updated = await prisma.$transaction(async (tx) => {
+      // Update user if needed
+      if (data.name || data.email) {
+        await tx.user.update({
+          where: { id: staff.userId },
+          data: { ...(data.name && { name: data.name }), ...(data.email && { email: data.email }) },
+        });
+      }
 
-    if (data.name || data.email) {
-      await prisma.user.update({
-        where: { id: staff.userId },
-        data: { ...(data.name && { name: data.name }), ...(data.email && { email: data.email }) },
+      return tx.staff.update({
+        where: { id: params.id },
+        data: updateData,
+        include: { user: true, class: true, department: true, subjects: true },
       });
-    }
-
-    const updated = await prisma.staff.update({
-      where: { id: params.id },
-      data: updateData,
-      include: { user: true, class: true, department: true, subjects: true },
     });
 
     return NextResponse.json({ staff: updated });
@@ -84,7 +85,8 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
   });
   if (!staff) return NextResponse.json({ error: "Staff not found" }, { status: 404 });
 
-  if (staff.user.school.domain !== currentUser.schoolDomain)
+  // ✅ Use schoolId for scoping
+  if (staff.user.schoolId !== currentUser.schoolId)
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   try {
@@ -96,15 +98,11 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
 }
 
 /* Design reasoning:
-- All routes now enforce schoolDomain scoping to prevent cross-school access.
-- PUT supports updating multiple subjects and auto department inference.
-- DELETE safely removes staff scoped to the current user's school.
-Structure:
-- PUT: Updates staff record with nested user fields, subjects, class, and department.
-- DELETE: Removes staff safely with schoolDomain validation.
-Implementation guidance:
-- Front-end sends subjects as array of IDs for PUT updates.
-- Always use cookieUser() to fetch current user info.
+- PUT & DELETE now consistently use schoolId for scoping (like Students API).
+- PUT updates user fields, staff record, subjects, class, and department in a single transaction.
+- DELETE removes staff safely and prevents cross-school deletion.
+- Validation errors return structured messages.
 Scalability insight:
-- Adding new relational fields or roles requires no changes to core CRUD logic.
+- Adding new relational fields or roles requires minimal changes.
+- Supports transactional safety for future updates (e.g., linked assignments, logs, subjects).
 */

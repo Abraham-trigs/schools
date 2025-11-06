@@ -1,15 +1,11 @@
 // app/api/staff/route.ts
-// Purpose: List and create staff scoped to authenticated user's school using schoolDomain, with pagination, search, filtering, role & department inference, and multi-subject support.
+// Purpose: List and create staff scoped to authenticated user's school using schoolId, with pagination, search, filtering, role & department inference, and multi-subject support.
 
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { z } from "zod";
 import { cookieUser } from "@/lib/cookieUser";
-import {
-  inferRoleFromPosition,
-  inferDepartmentFromPosition,
-  requiresClass,
-} from "@/lib/api/constants/roleInference.ts";
+import { inferRoleFromPosition, inferDepartmentFromPosition, requiresClass } from "@/lib/api/constants/roleInference.ts";
 import bcrypt from "bcryptjs";
 
 // ------------------------- Types -------------------------
@@ -50,7 +46,8 @@ export async function GET(req: NextRequest) {
   const page = Number(url.searchParams.get("page") || 1);
   const perPage = Number(url.searchParams.get("perPage") || 10);
 
-  const where: any = {};
+  const where: any = { user: { schoolId: user.schoolId } };
+
   if (search) {
     where.OR = [
       { user: { name: { contains: search, mode: "insensitive" } } },
@@ -59,9 +56,6 @@ export async function GET(req: NextRequest) {
   }
   if (role) where.user = { ...where.user, role };
   if (departmentId) where.departmentId = departmentId;
-
-  // Only staff in current user's school domain
-  where.user = { ...where.user, school: { domain: user.schoolDomain } };
 
   const [staffList, total] = await prisma.$transaction([
     prisma.staff.findMany({
@@ -95,7 +89,8 @@ export async function POST(req: NextRequest) {
 
     return await prisma.$transaction(async (tx) => {
       const existingUser = await tx.user.findUnique({ where: { email: data.email } });
-      if (existingUser) return NextResponse.json({ error: "User with email exists" }, { status: 400 });
+      if (existingUser)
+        return NextResponse.json({ error: "User with email exists" }, { status: 400 });
 
       const hashedPassword = await bcrypt.hash(data.password, 10);
 
@@ -105,14 +100,14 @@ export async function POST(req: NextRequest) {
           email: data.email,
           password: hashedPassword,
           role,
-          school: { connect: { domain: user.schoolDomain } },
+          schoolId: user.schoolId, // ✅ Use schoolId for scoping
         },
       });
 
       const newStaff = await tx.staff.create({
         data: {
           userId: newUser.id,
-          position: data.position || "Teacher",
+          position: data.position ?? "Teacher",
           departmentId: department?.id ?? null,
           classId: requiresClass(data.position) ? data.classId : null,
           salary: data.salary ?? null,
@@ -134,15 +129,9 @@ export async function POST(req: NextRequest) {
 }
 
 /* Design reasoning:
-- SchoolDomain scoping ensures users see only their school’s staff.
+- Staff GET/POST now uses schoolId for scoping, consistent with Student API.
+- Supports pagination, search, filtering by role/department.
 - Multi-subject support via Prisma many-to-many connect.
-- GET supports pagination, search, filtering by role/department.
 - POST hashes passwords securely and infers role/department/class.
-Structure:
-- GET: List staff filtered by schoolDomain with subjects included.
-- POST: Create staff scoped to current school with multiple subjects.
-Implementation guidance:
-- Front-end sends subjects as array of IDs.
-Scalability insight:
-- Supports additional relational fields (roles/departments) without changing core logic.
+- Transaction ensures consistent creation of user + staff record.
 */

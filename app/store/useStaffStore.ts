@@ -141,6 +141,38 @@ export const useStaffStore = create<StaffState>((set, get) => {
       }
     },
 
+    updateStaffById: async (id: string, payload: Partial<Staff>) => {
+  set((state) => {
+    const updatedList = state.staffList.map((s) =>
+      s.id === id ? { ...s, ...payload } : s
+    );
+    const updatedSelected =
+      state.selectedStaff?.id === id
+        ? { ...state.selectedStaff, ...payload }
+        : state.selectedStaff;
+    return { staffList: updatedList, selectedStaff: updatedSelected };
+  });
+
+  try {
+    const res = await apiClient<Staff>(`/api/staff/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    });
+
+    // Update store with server response to ensure full sync
+    set((state) => ({
+      staffList: state.staffList.map((s) => (s.id === id ? res : s)),
+      selectedStaff: state.selectedStaff?.id === id ? res : state.selectedStaff,
+    }));
+
+    return res;
+  } catch (err: any) {
+    console.error("Failed to update staff:", err);
+    throw err;
+  }
+},
+
+
     // ------------------------- Create staff -------------------------
     createStaff: async (userPayload, staffPayload) => {
       set({ loading: true, error: null });

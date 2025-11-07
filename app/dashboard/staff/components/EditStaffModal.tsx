@@ -7,7 +7,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { Staff, useStaffStore } from "@/app/store/useStaffStore";
 import { useClassesStore } from "@/app/store/useClassesStore";
-import { useSubjectStore } from "@/app/store/subjectStore";
+import { useSubjectsStore } from "@/app/store/subjectStore.ts";
 import {
   inferDepartmentFromPosition,
   requiresClass,

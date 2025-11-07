@@ -1,16 +1,24 @@
-// app/components/subjects/EditSubjectModal.tsx
-// Purpose: Modal form to edit an existing Subject, fetches preloaded data, shows related staff/classes, with optimistic UI updates.
+"use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
-import { useSubjectStore } from "@/app/store/subjectStore";
+import { useSubjectsStore, Subject } from "@/app/store/subjectStore.ts";
 
 // ------------------------- Schema -------------------------
 const editSubjectSchema = z.object({
-  name: z.string().min(1, "Name is required"),
-  code: z.string().optional().nullable(),
+  name: z.string().min(1, "Name is required").trim(),
+  code: z
+    .string()
+    .optional()
+    .nullable()
+    .transform((v) => v?.toUpperCase() ?? null),
+  description: z
+    .string()
+    .optional()
+    .nullable()
+    .transform((v) => v?.trim() ?? null),
 });
 
 type EditSubjectFormData = z.infer<typeof editSubjectSchema>;
@@ -19,7 +27,7 @@ interface EditSubjectModalProps {
   isOpen: boolean;
   onClose: () => void;
   subjectId: string;
-  onSuccess?: () => void; // ✅ added callback
+  onSuccess?: () => void;
 }
 
 // ------------------------- Modal Component -------------------------
@@ -29,71 +37,56 @@ export default function EditSubjectModal({
   subjectId,
   onSuccess,
 }: EditSubjectModalProps) {
-  const { updateSubject } = useSubjectStore();
-  const [subject, setSubject] = useState<EditSubjectFormData & any>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<string | null>(null);
+  const { subjects, updateSubject, loadingUpdate, error } = useSubjectsStore();
+
+  const subject = subjects.find((s) => s.id === subjectId) || null;
 
   const { register, handleSubmit, reset, formState } =
     useForm<EditSubjectFormData>({
       resolver: zodResolver(editSubjectSchema),
     });
 
-  // ------------------------- Fetch subject data on open -------------------------
+  // ------------------------- Reset form when subject changes -------------------------
   useEffect(() => {
-    if (isOpen && subjectId) {
-      setLoading(true);
-      fetch(`/api/subjects/${subjectId}`)
-        .then((res) => res.json())
-        .then((data) => {
-          setSubject(data);
-          reset({ name: data.name, code: data.code });
-        })
-        .catch((err) => setError(err.message))
-        .finally(() => setLoading(false));
+    if (subject) {
+      reset({
+        name: subject.name,
+        code: subject.code,
+        description: subject.description ?? "",
+      });
     }
-  }, [isOpen, subjectId, reset]);
+  }, [subject, reset]);
 
   // ------------------------- Submit handler -------------------------
   const onSubmit = async (data: EditSubjectFormData) => {
-    setError(null);
-    setSuccess(null);
-    setLoading(true);
-    try {
-      const updated = await updateSubject(subjectId, data);
-      if (updated) {
-        setSuccess("Subject updated successfully");
-        onSuccess?.(); // ✅ trigger parent refresh
-      }
-    } catch (err: any) {
-      setError(err.message || "Failed to update subject");
-    } finally {
-      setLoading(false);
+    const updated = await updateSubject(subjectId, data);
+    if (updated) {
+      onSuccess?.();
+      onClose();
     }
   };
 
   if (!isOpen) return null;
-  if (loading && !subject) return <div>Loading subject...</div>;
+  if (!subject && loadingUpdate)
+    return <div className="text-center py-4">Loading subject...</div>;
 
-  // ------------------------- Render -------------------------
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-      <div className="bg-white p-6 rounded-lg w-full max-w-md">
+      <div className="bg-white p-6 rounded-lg w-full max-w-md shadow-lg">
         <h2 className="text-lg font-semibold mb-4">Edit Subject</h2>
 
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           {/* Name */}
           <div>
-            <label className="block mb-1">Name</label>
+            <label className="block mb-1 font-medium">Name</label>
             <input
               {...register("name")}
-              className="w-full border p-2 rounded"
+              className="w-full border p-2 rounded focus:outline-none focus:ring focus:ring-ford-primary"
               placeholder="Enter subject name"
-              disabled={loading}
+              disabled={loadingUpdate}
             />
             {formState.errors.name && (
-              <p className="text-red-500 text-sm">
+              <p className="text-red-500 text-sm mt-1">
                 {formState.errors.name.message}
               </p>
             )}
@@ -101,43 +94,54 @@ export default function EditSubjectModal({
 
           {/* Code */}
           <div>
-            <label className="block mb-1">Code</label>
+            <label className="block mb-1 font-medium">Code</label>
             <input
               {...register("code")}
-              className="w-full border p-2 rounded"
+              className="w-full border p-2 rounded focus:outline-none focus:ring focus:ring-ford-primary"
               placeholder="Enter subject code (optional)"
-              disabled={loading}
+              disabled={loadingUpdate}
+            />
+          </div>
+
+          {/* Description */}
+          <div>
+            <label className="block mb-1 font-medium">Description</label>
+            <textarea
+              {...register("description")}
+              className="w-full border p-2 rounded focus:outline-none focus:ring focus:ring-ford-primary"
+              placeholder="Enter subject description (optional)"
+              rows={3}
+              disabled={loadingUpdate}
             />
           </div>
 
           {/* Created by info */}
           {subject?.createdBy && (
-            <div>
-              <strong>Created by:</strong> {subject.createdBy.name} (
+            <div className="text-sm text-gray-600">
+              Created by: <strong>{subject.createdBy.name}</strong> (
               {subject.createdBy.role})
             </div>
           )}
 
           {/* Feedback */}
           {error && <p className="text-red-500">{error}</p>}
-          {success && <p className="text-green-500">{success}</p>}
 
           {/* Buttons */}
-          <div className="flex justify-end space-x-2 mt-4">
+          <div className="flex justify-end gap-2 mt-4">
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 border rounded"
-              disabled={loading}
+              className="px-4 py-2 border rounded text-gray-700 hover:bg-gray-100"
+              disabled={loadingUpdate}
             >
               Cancel
             </button>
             <button
               type="submit"
-              className="px-4 py-2 bg-blue-600 text-white rounded"
-              disabled={loading}
+              className="px-4 py-2 bg-ford-primary text-white rounded hover:bg-ford-secondary"
+              disabled={loadingUpdate}
             >
-              {loading ? "Saving..." : "Update"}
+              {loadingUpdate ? "Saving..." : "Update"}
             </button>
           </div>
         </form>
@@ -146,12 +150,9 @@ export default function EditSubjectModal({
   );
 }
 
-/* Design reasoning:
-- Added onSuccess for parent-level control (refresh + close modal).
-- Keeps validation and error boundaries self-contained.
-- Loading guard ensures data consistency when opening modal.
-
-Scalability insight:
-- Can easily extend to include related entities (staff/class assignment).
-- Pattern matches Add/Delete modals for predictable behavior.
+/*
+✅ Updates:
+1. Uses `loadingUpdate` instead of generic `loading` for per-action isolation.
+2. Keeps form reactive to store changes.
+3. Prepares modal for bulk updates or store reset in future.
 */

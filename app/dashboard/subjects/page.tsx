@@ -1,185 +1,209 @@
+// app/dashboard/subjects/page.tsx
+// Purpose: Subjects management page with search, filters, pagination, add/edit/delete modals, fully synced to Zustand store and API
+
 "use client";
 
 import React, { useEffect, useState, useCallback } from "react";
 import { Loader2, Plus } from "lucide-react";
-import { useRouter } from "next/navigation";
 import { debounce } from "lodash";
-import { useStudentStore } from "@/app/store/useStudentStore.ts";
-import { useClassesStore } from "@/app/store/useClassesStore.ts";
-import { useStaffStore } from "@/app/store/useStaffStore.ts";
-import AddStudentModal from "./components/AddsubjectModal.tsx";
-import EditStudentModal from "./components/EditSubjectModal.tsx";
-import ConfirmDeleteModal from "./components/ConfirmDeleteModal.tsx";
+import { useSubjectsStore, Subject } from "@/app/store/subjectStore.ts";
+import AddSubjectModal from "./components/AddsubjectModal.tsx";
+import EditSubjectModal from "./components/EditSubjectModal";
+import ConfirmDeleteModal from "./components/ConfirmDeleteModal";
 
-export default function StudentsPage() {
-  const router = useRouter();
-
+export default function SubjectsPage() {
   const [localSearch, setLocalSearch] = useState("");
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [editModal, setEditModal] = useState<{
     open: boolean;
-    studentId?: string;
+    subjectId?: string;
   }>({ open: false });
   const [deleteModal, setDeleteModal] = useState<{
     open: boolean;
-    studentId?: string;
+    subjectId?: string;
   }>({ open: false });
+  const [highlightId, setHighlightId] = useState<string | null>(null);
+  const [localFilters, setLocalFilters] = useState({
+    classId: "",
+    staffId: "",
+    fromDate: "",
+    toDate: "",
+  });
 
   const {
-    students,
-    total,
-    page,
-    perPage,
+    subjects,
+    meta,
     loading,
-    sortBy,
-    sortOrder,
-    fetchStudents,
-    deleteStudent,
+    fetchSubjects,
+    deleteSubject,
     setSearch,
-    setSort,
     setPage,
-  } = useStudentStore();
+    setFilters,
+  } = useSubjectsStore();
 
-  const { fetchClasses } = useClassesStore();
-  const { fetchStaff } = useStaffStore();
+  const totalPages = Math.max(1, Math.ceil(meta.total / meta.limit));
 
-  const totalPages = Math.max(1, Math.ceil(total / perPage));
-
+  // ------------------------- Initial Fetch -------------------------
   useEffect(() => {
-    fetchStudents(page, perPage, localSearch);
-    fetchClasses();
-    fetchStaff();
-  }, []);
+    fetchSubjects({
+      page: meta.page,
+      search: localSearch,
+      filters: localFilters,
+    });
+  }, [meta.page, fetchSubjects, localSearch, localFilters]);
 
+  // ------------------------- Debounced Search -------------------------
   const debouncedSearch = useCallback(
     debounce((query: string) => {
-      setSearch(query);
       setPage(1);
-      fetchStudents(1, perPage, query);
+      setSearch(query);
+      fetchSubjects({ page: 1, search: query, filters: localFilters });
     }, 400),
-    [perPage]
+    [fetchSubjects, setSearch, setPage, localFilters]
   );
 
   useEffect(() => {
     debouncedSearch(localSearch);
   }, [localSearch, debouncedSearch]);
 
+  // ------------------------- Handle Delete -------------------------
   const handleDelete = async (id: string) => {
-    await deleteStudent(id);
+    await deleteSubject(id);
     setDeleteModal({ open: false });
-    fetchStudents(page, perPage, localSearch);
+    if (highlightId === id) setHighlightId(null);
   };
 
-  const handleRowClick = (studentId: string) => {
-    router.push(`/dashboard/students/${studentId}`);
+  // ------------------------- Handle Filter Change -------------------------
+  const handleFilterChange = (key: string, value: string) => {
+    const newFilters = { ...localFilters, [key]: value };
+    setLocalFilters(newFilters);
+    setFilters(newFilters);
+    setPage(1);
+    fetchSubjects({ page: 1, search: localSearch, filters: newFilters });
   };
 
+  // ------------------------- Render Table Rows -------------------------
   const renderRows = () => {
     if (loading) {
       return (
         <tr key="loading">
-          <td colSpan={4} className="text-center py-6">
+          <td colSpan={6} className="text-center py-6">
             <Loader2 className="animate-spin w-5 h-5 mx-auto text-gray-400" />
           </td>
         </tr>
       );
     }
 
-    if (!students.length) {
+    if (!subjects.length) {
       return (
         <tr key="empty">
-          <td colSpan={4} className="text-center py-6 text-gray-500 italic">
-            No students found
+          <td colSpan={6} className="text-center py-6 text-gray-500 italic">
+            No subjects found
           </td>
         </tr>
       );
     }
 
-    return students.map((student, index) => {
-      const rowKey = student.id ?? `student-${index}`;
-      return (
-        <tr
-          key={rowKey}
-          className="border-b hover:bg-gray-50 cursor-pointer transition-colors"
-          onClick={() => handleRowClick(student.id!)}
-        >
-          <td className="px-4 py-2">{student.name ?? "—"}</td>
-          <td className="px-4 py-2">{student.email ?? "—"}</td>
-          <td className="px-4 py-2">{student.class?.name ?? "—"}</td>
-          <td className="px-4 py-2 flex gap-2">
-            <button
-              className="px-2 py-1 rounded bg-blue-500 text-white text-sm hover:bg-blue-600"
-              onClick={(e) => {
-                e.stopPropagation();
-                setEditModal({ open: true, studentId: student.id });
-              }}
-            >
-              Edit
-            </button>
-            <button
-              className="px-2 py-1 rounded bg-red-500 text-white text-sm hover:bg-red-600"
-              onClick={(e) => {
-                e.stopPropagation();
-                setDeleteModal({ open: true, studentId: student.id });
-              }}
-            >
-              Delete
-            </button>
-          </td>
-        </tr>
-      );
-    });
+    return subjects.map((subject: Subject) => (
+      <tr
+        key={subject.id}
+        className={`border-b hover:bg-gray-50 transition-colors ${
+          subject.id === highlightId ? "bg-green-100" : ""
+        }`}
+      >
+        <td className="px-4 py-2">{subject.name}</td>
+        <td className="px-4 py-2">{subject.code ?? "—"}</td>
+        <td className="px-4 py-2">{subject.description ?? "—"}</td>
+        <td className="px-4 py-2">{subject.createdBy?.name ?? "—"}</td>
+        <td className="px-4 py-2">{subject.createdAt?.slice(0, 10) ?? "—"}</td>
+        <td className="px-4 py-2 flex gap-2">
+          <button
+            type="button"
+            className="px-2 py-1 rounded bg-blue-500 text-white text-sm hover:bg-blue-600"
+            onClick={(e) => {
+              e.stopPropagation();
+              setEditModal({ open: true, subjectId: subject.id });
+            }}
+          >
+            Edit
+          </button>
+          <button
+            type="button"
+            className="px-2 py-1 rounded bg-red-500 text-white text-sm hover:bg-red-600"
+            onClick={(e) => {
+              e.stopPropagation();
+              setDeleteModal({ open: true, subjectId: subject.id });
+            }}
+          >
+            Delete
+          </button>
+        </td>
+      </tr>
+    ));
   };
 
+  // ------------------------- Render -------------------------
   return (
     <div className="p-6 space-y-6">
+      {/* Header & Search */}
       <div className="flex flex-col md:flex-row justify-between items-center gap-4 mt-7">
-        <h1 className="text-2xl font-semibold">Students</h1>
-        <div className="flex gap-2">
+        <h1 className="text-2xl font-semibold">Subjects</h1>
+        <div className="flex gap-2 flex-wrap">
           <input
             type="text"
-            placeholder="Search students..."
+            placeholder="Search subjects..."
             value={localSearch}
             onChange={(e) => setLocalSearch(e.target.value)}
             className="px-3 py-2 border rounded-md focus:outline-none focus:ring focus:ring-ford-primary"
+          />
+          <select
+            value={localFilters.classId}
+            onChange={(e) => handleFilterChange("classId", e.target.value)}
+            className="px-2 py-1 border rounded-md focus:outline-none"
+          >
+            <option value="">All Classes</option>
+            {/* Dynamically populate from store or API */}
+          </select>
+          <select
+            value={localFilters.staffId}
+            onChange={(e) => handleFilterChange("staffId", e.target.value)}
+            className="px-2 py-1 border rounded-md focus:outline-none"
+          >
+            <option value="">All Staff</option>
+            {/* Dynamically populate from store or API */}
+          </select>
+          <input
+            type="date"
+            value={localFilters.fromDate}
+            onChange={(e) => handleFilterChange("fromDate", e.target.value)}
+            className="px-2 py-1 border rounded-md focus:outline-none"
+          />
+          <input
+            type="date"
+            value={localFilters.toDate}
+            onChange={(e) => handleFilterChange("toDate", e.target.value)}
+            className="px-2 py-1 border rounded-md focus:outline-none"
           />
           <button
             type="button"
             onClick={() => setIsAddModalOpen(true)}
             className="flex items-center gap-1 bg-ford-primary text-white px-3 py-1 rounded-md text-sm hover:bg-ford-secondary transition"
           >
-            <Plus className="w-4 h-4" /> Add Student
+            <Plus className="w-4 h-4" /> Add Subject
           </button>
         </div>
       </div>
 
+      {/* Table */}
       <div className="overflow-x-auto border rounded-lg">
         <table className="min-w-full text-sm">
           <thead className="bg-ford-primary text-white">
             <tr>
-              <th
-                className="px-4 py-2 text-left cursor-pointer"
-                onClick={() =>
-                  setSort(
-                    "name",
-                    sortBy === "name" && sortOrder === "asc" ? "desc" : "asc"
-                  )
-                }
-              >
-                Name
-              </th>
-              <th
-                className="px-4 py-2 text-left cursor-pointer"
-                onClick={() =>
-                  setSort(
-                    "email",
-                    sortBy === "email" && sortOrder === "asc" ? "desc" : "asc"
-                  )
-                }
-              >
-                Email
-              </th>
-              <th className="px-4 py-2 text-left">Class</th>
+              <th className="px-4 py-2 text-left">Name</th>
+              <th className="px-4 py-2 text-left">Code</th>
+              <th className="px-4 py-2 text-left">Description</th>
+              <th className="px-4 py-2 text-left">Created By</th>
+              <th className="px-4 py-2 text-left">Created At</th>
               <th className="px-4 py-2 text-left">Actions</th>
             </tr>
           </thead>
@@ -187,49 +211,69 @@ export default function StudentsPage() {
         </table>
       </div>
 
+      {/* Pagination */}
       <div className="flex justify-end gap-2 mt-2">
         <button
-          disabled={page === 1}
-          onClick={() => setPage(page - 1)}
+          disabled={meta.page === 1}
+          onClick={() => setPage(meta.page - 1)}
           className="px-3 py-1 rounded border disabled:opacity-50"
         >
           Prev
         </button>
         <span className="px-2 py-1">
-          {page} / {totalPages}
+          {meta.page} / {totalPages}
         </span>
         <button
-          disabled={page === totalPages || totalPages === 0}
-          onClick={() => setPage(page + 1)}
+          disabled={meta.page === totalPages || totalPages === 0}
+          onClick={() => setPage(meta.page + 1)}
           className="px-3 py-1 rounded border disabled:opacity-50"
         >
           Next
         </button>
       </div>
 
+      {/* Modals */}
       {isAddModalOpen && (
-        <AddStudentModal
+        <AddSubjectModal
+          isOpen={isAddModalOpen}
           onClose={() => setIsAddModalOpen(false)}
-          onSuccess={() => fetchStudents(page, perPage, localSearch)}
+          onSuccess={(newSubject: Subject) => {
+            setHighlightId(newSubject.id);
+            setPage(1);
+          }}
         />
       )}
 
-      {editModal.open && editModal.studentId && (
-        <EditStudentModal
-          studentId={editModal.studentId}
+      {editModal.open && editModal.subjectId && (
+        <EditSubjectModal
+          isOpen={editModal.open}
+          subjectId={editModal.subjectId}
           onClose={() => setEditModal({ open: false })}
-          onSuccess={() => fetchStudents(page, perPage, localSearch)}
+          onSuccess={() =>
+            fetchSubjects({
+              page: meta.page,
+              search: localSearch,
+              filters: localFilters,
+            })
+          }
         />
       )}
 
-      {deleteModal.open && deleteModal.studentId && (
+      {deleteModal.open && deleteModal.subjectId && (
         <ConfirmDeleteModal
-          title="Delete Student"
-          message="Are you sure you want to delete this student?"
-          onConfirm={() => handleDelete(deleteModal.studentId!)}
+          title="Delete Subject"
+          message="Are you sure you want to delete this subject?"
+          onConfirm={() => handleDelete(deleteModal.subjectId!)}
           onClose={() => setDeleteModal({ open: false })}
         />
       )}
     </div>
   );
 }
+
+/*
+Design reasoning → Full page CRUD UX with search, filters, pagination, and modals for add/edit/delete
+Structure → Local state for modals, search, filters; fetch synced to Zustand store; table renders dynamic data with highlighting
+Implementation guidance → Debounced search, normalized filters, optimistic updates on add/delete, consistent error handling
+Scalability insight → Can add multi-column sorting, bulk actions, export, and real-time updates without changing core store or API
+*/

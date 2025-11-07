@@ -1,182 +1,193 @@
-// app/stores/subjectStore.ts
-// Purpose: Zustand store to manage Subjects with pagination, search, filters, and CRUD operations
-// Notes: Supports school-scoped subjects and can provide dropdown-ready lists
-
 import { create } from "zustand";
-import { Subject } from "@prisma/client";
-import { debounce } from "lodash";
+import { devtools } from "zustand/middleware";
 
-interface SubjectFilters {
-  classId?: string;
-  staffId?: string;
-  fromDate?: string; // ISO string
-  toDate?: string;   // ISO string
-}
+export type Subject = {
+  id: string;
+  name: string;
+  description: string | null;
+  code: string | null;
+  createdAt: string;
+  updatedAt: string;
+  createdBy?: { id: string; name: string; role: string };
+  classes?: { id: string; name: string }[];
+  staff?: { id: string; name: string }[];
+};
 
-interface SubjectStoreState {
+type Meta = { total: number; page: number; limit: number };
+
+type SubjectsStore = {
   subjects: Subject[];
-  total: number;
+  meta: Meta;
+  search: string;
   page: number;
   limit: number;
-  search: string;
-  filters: SubjectFilters;
-  loading: boolean;
   error: string | null;
 
-  fetchSubjects: (page?: number, search?: string, filters?: SubjectFilters) => Promise<void>;
-  createSubject: (data: { name: string; code?: string | null }) => Promise<Subject | void>;
-  updateSubject: (id: string, data: { name?: string; code?: string | null }) => Promise<Subject | void>;
-  deleteSubject: (id: string) => Promise<void>;
-  setSearch: (search: string) => void;
+  loadingFetch: boolean;
+  loadingCreate: boolean;
+  loadingUpdate: boolean;
+  loadingDelete: boolean;
+
+  fetchSubjects: (opts?: { page?: number; limit?: number; search?: string }) => Promise<void>;
+  createSubject: (payload: Partial<Subject>) => Promise<Subject | null>;
+  updateSubject: (id: string, payload: Partial<Subject>) => Promise<Subject | null>;
+  deleteSubject: (id: string) => Promise<boolean>;
+  bulkUpdateSubjects: (payloads: { id: string; classIds?: string[]; staffIds?: string[] }[]) => Promise<Subject[] | null>;
+  setSearch: (query: string) => void;
   setPage: (page: number) => void;
-  setFilters: (filters: SubjectFilters) => void;
-  getDropdownList: () => { value: string; label: string }[];
-}
+  reset: () => void;
+};
 
-export const useSubjectStore = create<SubjectStoreState>((set, get) => {
-  // Debounce to prevent excessive API calls
-  const debouncedFetch = debounce((page?: number, search?: string, filters?: SubjectFilters) => {
-    get().fetchSubjects(page, search, filters);
-  }, 300);
-
-  return {
+export const useSubjectsStore = create<SubjectsStore>()(
+  devtools((set, get) => ({
     subjects: [],
-    total: 0,
-    page: 1,
-    limit: 20,
+    meta: { total: 0, page: 1, limit: 10 },
     search: "",
-    filters: {},
-    loading: false,
+    page: 1,
+    limit: 10,
     error: null,
 
-    // Fetch paginated subjects from API
-    fetchSubjects: async (page = get().page, search = get().search, filters = get().filters) => {
-      set({ loading: true, error: null });
+    loadingFetch: false,
+    loadingCreate: false,
+    loadingUpdate: false,
+    loadingDelete: false,
 
+    fetchSubjects: async ({ page, limit, search } = {}) => {
+      set({ loadingFetch: true, error: null });
       try {
-        const params = new URLSearchParams({
-          page: String(page),
-          limit: String(get().limit),
-        });
+        const query = new URLSearchParams();
+        query.set("page", String(page ?? get().page));
+        query.set("limit", String(limit ?? get().limit));
+        if (search ?? get().search) query.set("search", search ?? get().search);
 
-        if (search) params.append("search", search);
-        if (filters.classId) params.append("classId", filters.classId);
-        if (filters.staffId) params.append("staffId", filters.staffId);
-        if (filters.fromDate) params.append("fromDate", filters.fromDate);
-        if (filters.toDate) params.append("toDate", filters.toDate);
+        const res = await fetch(`/api/subjects?${query.toString()}`);
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Failed to fetch subjects");
 
-        const res = await fetch(`/api/subjects?${params.toString()}`);
-        const text = await res.text();
-        const json = text ? JSON.parse(text) : { data: [], meta: { total: 0 } };
-        if (!res.ok) throw new Error(json.error || "Failed to fetch subjects");
-
-        set({ subjects: json.data, total: json.meta.total, page, search, filters });
+        set({ subjects: data.data, meta: data.meta, loadingFetch: false });
       } catch (err: any) {
-        set({ error: err.message || "Unknown error" });
-      } finally {
-        set({ loading: false });
+        set({ error: err.message || "Failed to fetch subjects", loadingFetch: false });
       }
     },
 
-    // Create new subject
-    createSubject: async (data) => {
-      set({ loading: true, error: null });
+    createSubject: async (payload) => {
+      set({ loadingCreate: true, error: null });
       try {
+        const body = {
+          name: payload.name?.trim(),
+          code: payload.code?.trim().toUpperCase() || null,
+          description: payload.description?.trim() || null,
+          classIds: payload.classes?.map((c) => c.id) || [],
+          staffIds: payload.staff?.map((s) => s.id) || [],
+        };
+
         const res = await fetch("/api/subjects", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(data),
+          body: JSON.stringify(body),
         });
-        const text = await res.text();
-        const json = text ? JSON.parse(text) : null;
-        if (!res.ok) throw new Error(JSON.stringify(json?.error) || "Failed to create subject");
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Failed to create subject");
 
-        if (json) set((state) => ({ subjects: [json, ...state.subjects], total: state.total + 1 }));
-        return json;
+        set((state) => ({ subjects: [data, ...state.subjects], loadingCreate: false }));
+        return data;
       } catch (err: any) {
-        set({ error: err.message });
-      } finally {
-        set({ loading: false });
+        set({ error: err.message || "Failed to create subject", loadingCreate: false });
+        return null;
       }
     },
 
-    // Update subject
-    updateSubject: async (id, data) => {
-      set({ loading: true, error: null });
+    updateSubject: async (id, payload) => {
+      set({ loadingUpdate: true, error: null });
       try {
+        const body = {
+          name: payload.name?.trim(),
+          code: payload.code?.trim().toUpperCase() || null,
+          description: payload.description?.trim() || null,
+          classIds: payload.classes?.map((c) => c.id) || [],
+          staffIds: payload.staff?.map((s) => s.id) || [],
+        };
+
         const res = await fetch(`/api/subjects/${id}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(data),
+          body: JSON.stringify(body),
         });
-        const text = await res.text();
-        const json = text ? JSON.parse(text) : null;
-        if (!res.ok) throw new Error(JSON.stringify(json?.error) || "Failed to update subject");
 
-        if (json)
-          set((state) => ({
-            subjects: state.subjects.map((s) => (s.id === id ? json : s)),
-          }));
-        return json;
-      } catch (err: any) {
-        set({ error: err.message });
-      } finally {
-        set({ loading: false });
-      }
-    },
-
-    // Delete subject
-    deleteSubject: async (id) => {
-      set({ loading: true, error: null });
-      try {
-        const res = await fetch(`/api/subjects/${id}`, { method: "DELETE" });
-        const text = await res.text();
-        const json = text ? JSON.parse(text) : null;
-        if (!res.ok) throw new Error(json?.error || "Failed to delete subject");
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Failed to update subject");
 
         set((state) => ({
-          subjects: state.subjects.filter((s) => s.id !== id),
-          total: state.total - 1,
+          subjects: state.subjects.map((s) => (s.id === id ? data : s)),
+          loadingUpdate: false,
         }));
+        return data;
       } catch (err: any) {
-        set({ error: err.message });
-      } finally {
-        set({ loading: false });
+        set({ error: err.message || "Failed to update subject", loadingUpdate: false });
+        return null;
       }
     },
 
-    // Update search query
-    setSearch: (search) => {
-      set({ search, page: 1 });
-      debouncedFetch(1, search, get().filters);
+    deleteSubject: async (id) => {
+      set({ loadingDelete: true, error: null });
+      try {
+        const res = await fetch(`/api/subjects/${id}`, { method: "DELETE" });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Failed to delete subject");
+
+        set((state) => ({ subjects: state.subjects.filter((s) => s.id !== id), loadingDelete: false }));
+        return true;
+      } catch (err: any) {
+        set({ error: err.message || "Failed to delete subject", loadingDelete: false });
+        return false;
+      }
     },
 
-    // Update current page
-    setPage: (page: number) => {
-      set({ page });
-      debouncedFetch(page, get().search, get().filters);
+    bulkUpdateSubjects: async (payloads) => {
+      set({ loadingUpdate: true, error: null });
+      try {
+        const updates = await Promise.all(
+          payloads.map(async (p) => {
+            const res = await fetch(`/api/subjects/${p.id}`, {
+              method: "PUT",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                classIds: p.classIds || [],
+                staffIds: p.staffIds || [],
+              }),
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || "Failed to bulk update subject");
+            return data;
+          })
+        );
+
+        set((state) => ({
+          subjects: state.subjects.map((s) => updates.find((u) => u.id === s.id) || s),
+          loadingUpdate: false,
+        }));
+
+        return updates;
+      } catch (err: any) {
+        set({ error: err.message || "Failed to bulk update subjects", loadingUpdate: false });
+        return null;
+      }
     },
 
-    // Update filters
-    setFilters: (filters: SubjectFilters) => {
-      set({ filters, page: 1 });
-      debouncedFetch(1, get().search, filters);
-    },
-
-    // Return subjects formatted for dropdowns
-    getDropdownList: () => get().subjects.map((s) => ({ value: s.id, label: s.name })),
-  };
-});
-
-/*
-Design reasoning:
-- Centralizes state for pagination, search, and filters.
-- Debounced fetch prevents rapid API calls.
-- `getDropdownList` enables dropdown selection in modals/forms.
-- School-scoped API ensures users only see subjects belonging to their school.
-
-Scalability:
-- Add more filters (department, semester) easily without changing UI logic.
-- Infinite scroll or appendable lists can be supported by modifying fetchSubjects.
-- Error handling centralized, reusable in components.
-*/
+    setSearch: (query) => set({ search: query }),
+    setPage: (page) => set({ page }),
+    reset: () =>
+      set({
+        subjects: [],
+        meta: { total: 0, page: 1, limit: 10 },
+        search: "",
+        page: 1,
+        limit: 10,
+        error: null,
+        loadingFetch: false,
+        loadingCreate: false,
+        loadingUpdate: false,
+        loadingDelete: false,
+      }),
+  }))
+);

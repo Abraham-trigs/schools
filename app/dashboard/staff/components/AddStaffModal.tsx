@@ -16,7 +16,7 @@ import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useStaffStore } from "@/app/store/useStaffStore";
 import { useClassesStore } from "@/app/store/useClassesStore";
-import { useSubjectStore } from "@/app/store/subjectStore.ts";
+import { useSubjectsStore } from "@/app/store/subjectStore.ts";
 import {
   roleToDepartment,
   roleRequiresClass,

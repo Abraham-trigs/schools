@@ -2,7 +2,7 @@
 // Purpose: Reusable modal to confirm deletion of a subject, handles optimistic UI, error display, and integrates with Zustand store.
 
 import React, { useState } from "react";
-import { useSubjectStore } from "@/app/store/subjectStore.ts";
+import { useSubjectsStore } from "@/app/store/subjectStore.ts";
 
 interface ConfirmDeleteModalProps {
   onClose: () => void;

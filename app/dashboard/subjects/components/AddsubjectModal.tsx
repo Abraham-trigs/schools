@@ -1,16 +1,25 @@
-// app/components/subjects/AddSubjectModal.tsx
-// Purpose: Modal to create a new subject, aligned with EditSubjectModal and page modal logic.
+// app/dashboard/subjects/components/AddSubjectModal.tsx
+"use client";
 
 import React from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
-import { useSubjectStore } from "@/app/store/subjectStore.ts";
+import { useSubjectsStore, Subject } from "@/app/store/subjectStore.ts";
 
 // ------------------------- Schema -------------------------
 const addSubjectSchema = z.object({
-  name: z.string().min(1, "Name is required"),
-  code: z.string().optional().nullable(),
+  name: z.string().min(1, "Name is required").trim(),
+  code: z
+    .string()
+    .optional()
+    .nullable()
+    .transform((v) => v?.toUpperCase() ?? null),
+  description: z
+    .string()
+    .optional()
+    .nullable()
+    .transform((v) => v?.trim() ?? null),
 });
 
 type AddSubjectFormData = z.infer<typeof addSubjectSchema>;
@@ -18,7 +27,7 @@ type AddSubjectFormData = z.infer<typeof addSubjectSchema>;
 interface AddSubjectModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSuccess?: () => void;
+  onSuccess?: (newSubject: Subject) => void;
 }
 
 // ------------------------- Modal Component -------------------------
@@ -27,19 +36,19 @@ export default function AddSubjectModal({
   onClose,
   onSuccess,
 }: AddSubjectModalProps) {
-  const { createSubject, loading, error } = useSubjectStore();
+  const { createSubject, loadingCreate, error } = useSubjectsStore();
 
   const { register, handleSubmit, reset, formState } =
     useForm<AddSubjectFormData>({
       resolver: zodResolver(addSubjectSchema),
-      defaultValues: { name: "", code: "" },
+      defaultValues: { name: "", code: "", description: "" },
     });
 
   const onSubmit = async (data: AddSubjectFormData) => {
-    const result = await createSubject(data);
-    if (result) {
+    const newSubject = await createSubject(data);
+    if (newSubject) {
       reset();
-      if (onSuccess) onSuccess();
+      onSuccess?.(newSubject); // pass the created subject to parent for table update
       onClose();
     }
   };
@@ -48,21 +57,21 @@ export default function AddSubjectModal({
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-      <div className="bg-white p-6 rounded-lg w-full max-w-md">
+      <div className="bg-white p-6 rounded-lg w-full max-w-md shadow-lg">
         <h2 className="text-lg font-semibold mb-4">Add Subject</h2>
 
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           {/* Name */}
           <div>
-            <label className="block mb-1">Name</label>
+            <label className="block mb-1 font-medium">Name</label>
             <input
               {...register("name")}
-              className="w-full border p-2 rounded"
+              className="w-full border p-2 rounded focus:outline-none focus:ring focus:ring-ford-primary"
               placeholder="Enter subject name"
-              disabled={loading}
+              disabled={loadingCreate}
             />
             {formState.errors.name && (
-              <p className="text-red-500 text-sm">
+              <p className="text-red-500 text-sm mt-1">
                 {formState.errors.name.message}
               </p>
             )}
@@ -70,12 +79,24 @@ export default function AddSubjectModal({
 
           {/* Code */}
           <div>
-            <label className="block mb-1">Code</label>
+            <label className="block mb-1 font-medium">Code</label>
             <input
               {...register("code")}
-              className="w-full border p-2 rounded"
+              className="w-full border p-2 rounded focus:outline-none focus:ring focus:ring-ford-primary"
               placeholder="Enter subject code (optional)"
-              disabled={loading}
+              disabled={loadingCreate}
+            />
+          </div>
+
+          {/* Description */}
+          <div>
+            <label className="block mb-1 font-medium">Description</label>
+            <textarea
+              {...register("description")}
+              className="w-full border p-2 rounded focus:outline-none focus:ring focus:ring-ford-primary"
+              placeholder="Enter subject description (optional)"
+              rows={3}
+              disabled={loadingCreate}
             />
           </div>
 
@@ -83,21 +104,21 @@ export default function AddSubjectModal({
           {error && <p className="text-red-500">{error}</p>}
 
           {/* Buttons */}
-          <div className="flex justify-end space-x-2">
+          <div className="flex justify-end gap-2 mt-4">
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 border rounded"
-              disabled={loading}
+              className="px-4 py-2 border rounded text-gray-700 hover:bg-gray-100"
+              disabled={loadingCreate}
             >
               Cancel
             </button>
             <button
               type="submit"
-              className="px-4 py-2 bg-blue-600 text-white rounded"
-              disabled={loading}
+              className="px-4 py-2 bg-ford-primary text-white rounded hover:bg-ford-secondary"
+              disabled={loadingCreate}
             >
-              {loading ? "Saving..." : "Add"}
+              {loadingCreate ? "Saving..." : "Add"}
             </button>
           </div>
         </form>
@@ -106,9 +127,9 @@ export default function AddSubjectModal({
   );
 }
 
-/* Design reasoning:
-- Matches EditSubjectModal for consistent UX and logic.
-- Uses isOpen guard to prevent unintended render.
-- Keeps store-driven loading/error handling unified.
-- Calls both onSuccess (for parent refresh) and onClose (for modal close) to ensure clean flow.
+/*
+✅ Updates:
+1. Replaced generic `loading` with `loadingCreate` for per-action isolation.
+2. Preserves current UX, inline error handling, and RHF validation.
+3. Ready for future store reset and bulk features without UI changes.
 */

@@ -138,24 +138,28 @@ model Class {
 // Purpose: Subject model with fully aligned relations to Users, Students, Staff, Exams, and Classes
 
 model Subject {
-  id        String   @id @default(cuid())
-  name      String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  schoolId  String
-  school    School   @relation(fields: [schoolId], references: [id])
+  id          String   @id @default(cuid())
+  name        String
+  description String?  // Optional field for subject description
+  code        String?
+  schoolId    String
+  school      School   @relation(fields: [schoolId], references: [id])
 
   createdById String?
-  createdBy   User?   @relation("UserCreatedSubjects", fields: [createdById], references: [id])
+  createdBy   User?    @relation("UserCreatedSubjects", fields: [createdById], references: [id])
 
-  exams    Exam[]
-  staff    Staff[]   @relation("StaffSubjects")
-  students Student[] @relation("StudentSubjects")
-  classes  Class[]   @relation("ClassSubjects")
+  exams       Exam[]
+  staff       Staff[]   @relation("StaffSubjects")
+  students    Student[] @relation("StudentSubjects")
+  classes     Class[]   @relation("ClassSubjects")
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   @@unique([name, schoolId])
   @@map("subjects")
 }
+
 
 // prisma/schema.prisma
 // Purpose: Exam model linking Students, Classes, and Subjects with full relational integrity

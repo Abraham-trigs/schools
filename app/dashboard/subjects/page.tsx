@@ -1,101 +1,103 @@
 // app/dashboard/subjects/page.tsx
-// Purpose: Subjects management page without date filters, with search, pagination, add/edit/delete modals, fully synced to Zustand store and API. Search input focused on initial load.
+// Purpose: Subjects management page with search, filters, pagination, add/edit/delete modals, fully synced without infinite fetch loop.
 
 "use client";
 
-import React, { useEffect, useState, useCallback, useRef } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import { Loader2, Plus } from "lucide-react";
-import { debounce } from "lodash";
-import { useSubjectsStore, Subject } from "@/app/store/subjectStore.ts";
-import AddSubjectModal from "./components/AddsubjectModal.tsx";
+import { useSubjectsStore, Subject } from "@/app/store/subjectStore";
+import { useClassesStore } from "@/app/store/useClassesStore";
+import { useStaffStore } from "@/app/store/useStaffStore";
+import AddSubjectModal from "./components/AddsubjectModal";
 import EditSubjectModal from "./components/EditSubjectModal";
 import ConfirmDeleteModal from "./components/ConfirmDeleteModal";
+import { debounce } from "lodash";
 
 export default function SubjectsPage() {
-  // ------------------------- Refs -------------------------
-  const searchInputRef = useRef<HTMLInputElement>(null); // Ref to focus input on first load
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
-  // ------------------------- Local State -------------------------
-  const [localSearch, setLocalSearch] = useState(""); // Current search string
-  const [isAddModalOpen, setIsAddModalOpen] = useState(false); // Add modal toggle
+  const [localSearch, setLocalSearch] = useState("");
+  const [localFilters, setLocalFilters] = useState({
+    classId: "",
+    staffId: "",
+  });
+  const [highlightId, setHighlightId] = useState<string | null>(null);
+  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [editModal, setEditModal] = useState<{
     open: boolean;
     subjectId?: string;
-  }>({ open: false }); // Edit modal state
+  }>({ open: false });
   const [deleteModal, setDeleteModal] = useState<{
     open: boolean;
     subjectId?: string;
     subjectName?: string;
-    subjectClasses?: { id: string; name: string }[];
-  }>({ open: false }); // Delete modal state
-  const [highlightId, setHighlightId] = useState<string | null>(null); // Highlight newly added/edited subject
-  const [localFilters, setLocalFilters] = useState({
-    classId: "",
-    staffId: "",
-  }); // Filter state
+  }>({ open: false });
 
-  // ------------------------- Store -------------------------
-  const {
-    subjects,
-    meta,
-    loadingFetch,
-    fetchSubjects,
-    deleteSubject,
-    setSearch,
-    setPage,
-    setFilters,
-  } = useSubjectsStore();
-  const totalPages = Math.max(1, Math.ceil(meta.total / meta.limit)); // Compute total pages for pagination
+  const subjectsStore = useSubjectsStore();
+  const classesStore = useClassesStore();
+  const staffStore = useStaffStore();
 
-  // ------------------------- Focus search on mount -------------------------
+  const { subjects, meta, loadingFetch, deleteSubject, setSearch, setPage } =
+    subjectsStore;
+  const totalPages = Math.max(1, Math.ceil(meta.total / meta.limit));
+
+  // ---------------- Focus input ----------------
+  useEffect(() => searchInputRef.current?.focus(), []);
+
+  // ---------------- Fetch dropdowns once ----------------
   useEffect(() => {
-    searchInputRef.current?.focus(); // Focus the search input when component mounts
+    if (!classesStore.classes.length) classesStore.fetchClasses();
+    if (!staffStore.staffList.length) staffStore.fetchStaff();
   }, []);
 
-  // ------------------------- Fetch Subjects -------------------------
+  // ---------------- Debounced Search ----------------
+  const debouncedSearch = debounce((query: string) => {
+    setPage(1);
+    setSearch(query);
+    subjectsStore.fetchSubjects({
+      page: 1,
+      search: query,
+      filters: localFilters,
+    });
+  }, 400);
+
   useEffect(() => {
-    fetchSubjects({
-      page: meta.page,
+    debouncedSearch(localSearch);
+  }, [localSearch]);
+
+  // ---------------- Filter / Pagination ----------------
+  const handleFilterChange = (key: "classId" | "staffId", value: string) => {
+    const newFilters = { ...localFilters, [key]: value };
+    setLocalFilters(newFilters);
+    setPage(1);
+    subjectsStore.fetchSubjects({
+      page: 1,
+      search: localSearch,
+      filters: newFilters,
+    });
+  };
+
+  const handlePageChange = (newPage: number) => {
+    setPage(newPage);
+    subjectsStore.fetchSubjects({
+      page: newPage,
       search: localSearch,
       filters: localFilters,
     });
-  }, [meta.page, localSearch, localFilters, fetchSubjects]);
+  };
 
-  // ------------------------- Debounced Search -------------------------
-  const debouncedSearch = useCallback(
-    debounce((query: string) => {
-      setPage(1); // Reset to first page on search
-      setSearch(query); // Update store search
-      fetchSubjects({ page: 1, search: query, filters: localFilters }); // Fetch filtered subjects
-    }, 400),
-    [fetchSubjects, setSearch, setPage, localFilters]
-  );
-
-  useEffect(() => {
-    debouncedSearch(localSearch); // Trigger debounced search whenever input changes
-  }, [localSearch, debouncedSearch]);
-
-  // ------------------------- Delete Handler -------------------------
+  // ---------------- Delete Handler ----------------
   const handleDelete = async (id: string) => {
-    const success = await deleteSubject(id); // Call store delete
+    const success = await deleteSubject(id);
     if (success) {
-      setDeleteModal({ open: false }); // Close modal
-      if (highlightId === id) setHighlightId(null); // Remove highlight if deleting highlighted item
+      setDeleteModal({ open: false });
+      if (highlightId === id) setHighlightId(null);
     }
   };
 
-  // ------------------------- Filter Handler -------------------------
-  const handleFilterChange = (key: string, value: string) => {
-    const newFilters = { ...localFilters, [key]: value }; // Update local filter
-    setLocalFilters(newFilters);
-    setFilters(newFilters); // Update store filters
-    setPage(1); // Reset page
-    fetchSubjects({ page: 1, search: localSearch, filters: newFilters }); // Fetch filtered subjects
-  };
-
-  // ------------------------- Render Table Rows -------------------------
+  // ---------------- Table Rows ----------------
   const renderRows = () => {
-    if (loadingFetch) {
+    if (loadingFetch)
       return (
         <tr key="loading">
           <td colSpan={6} className="text-center py-6">
@@ -103,9 +105,7 @@ export default function SubjectsPage() {
           </td>
         </tr>
       );
-    }
-
-    if (!subjects.length) {
+    if (!subjects.length)
       return (
         <tr key="empty">
           <td colSpan={6} className="text-center py-6 text-gray-500 italic">
@@ -113,27 +113,26 @@ export default function SubjectsPage() {
           </td>
         </tr>
       );
-    }
 
-    return subjects.map((subject: Subject) => (
+    return subjects.map((s: Subject) => (
       <tr
-        key={subject.id}
+        key={s.id}
         className={`border-b hover:bg-gray-50 transition-colors ${
-          subject.id === highlightId ? "bg-green-100" : ""
+          s.id === highlightId ? "bg-green-100" : ""
         }`}
       >
-        <td className="px-4 py-2">{subject.name}</td>
-        <td className="px-4 py-2">{subject.code ?? "—"}</td>
-        <td className="px-4 py-2">{subject.description ?? "—"}</td>
-        <td className="px-4 py-2">{subject.createdBy?.name ?? "—"}</td>
-        <td className="px-4 py-2">{subject.createdAt?.slice(0, 10) ?? "—"}</td>
+        <td className="px-4 py-2">{s.name}</td>
+        <td className="px-4 py-2">{s.code ?? "—"}</td>
+        <td className="px-4 py-2">{s.description ?? "—"}</td>
+        <td className="px-4 py-2">{s.createdBy?.name ?? "—"}</td>
+        <td className="px-4 py-2">{s.createdAt?.slice(0, 10) ?? "—"}</td>
         <td className="px-4 py-2 flex gap-2">
           <button
             type="button"
             className="px-2 py-1 rounded bg-blue-500 text-white text-sm hover:bg-blue-600"
             onClick={(e) => {
-              e.stopPropagation(); // Prevent row click propagation
-              setEditModal({ open: true, subjectId: subject.id }); // Open edit modal
+              e.stopPropagation();
+              setEditModal({ open: true, subjectId: s.id });
             }}
           >
             Edit
@@ -145,9 +144,8 @@ export default function SubjectsPage() {
               e.stopPropagation();
               setDeleteModal({
                 open: true,
-                subjectId: subject.id,
-                subjectName: subject.name,
-                subjectClasses: subject.classes,
+                subjectId: s.id,
+                subjectName: s.name,
               });
             }}
           >
@@ -158,39 +156,43 @@ export default function SubjectsPage() {
     ));
   };
 
-  // ------------------------- Render -------------------------
   return (
     <div className="p-6 space-y-6">
-      {/* Header & Search */}
       <div className="flex flex-col md:flex-row justify-between items-center gap-4 mt-7">
         <h1 className="text-2xl font-semibold">Subjects</h1>
         <div className="flex gap-2 flex-wrap">
-          {/* Search Input */}
           <input
-            ref={searchInputRef} // Ref used to auto-focus
+            ref={searchInputRef}
             type="text"
             placeholder="Search subjects..."
             value={localSearch}
             onChange={(e) => setLocalSearch(e.target.value)}
             className="px-3 py-2 border rounded-md focus:outline-none focus:ring focus:ring-ford-primary"
           />
-          {/* Class Filter */}
           <select
             value={localFilters.classId}
             onChange={(e) => handleFilterChange("classId", e.target.value)}
             className="px-2 py-1 border rounded-md focus:outline-none"
           >
             <option value="">All Classes</option>
+            {classesStore.classes.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name}
+              </option>
+            ))}
           </select>
-          {/* Staff Filter */}
           <select
             value={localFilters.staffId}
             onChange={(e) => handleFilterChange("staffId", e.target.value)}
             className="px-2 py-1 border rounded-md focus:outline-none"
           >
             <option value="">All Staff</option>
+            {staffStore.staffList.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.name}
+              </option>
+            ))}
           </select>
-          {/* Add Subject Button */}
           <button
             type="button"
             onClick={() => setIsAddModalOpen(true)}
@@ -201,7 +203,6 @@ export default function SubjectsPage() {
         </div>
       </div>
 
-      {/* Table */}
       <div className="overflow-x-auto border rounded-lg">
         <table className="min-w-full text-sm">
           <thead className="bg-ford-primary text-white">
@@ -218,11 +219,10 @@ export default function SubjectsPage() {
         </table>
       </div>
 
-      {/* Pagination */}
       <div className="flex justify-end gap-2 mt-2">
         <button
           disabled={meta.page === 1}
-          onClick={() => setPage(meta.page - 1)}
+          onClick={() => handlePageChange(meta.page - 1)}
           className="px-3 py-1 rounded border disabled:opacity-50"
         >
           Prev
@@ -231,22 +231,21 @@ export default function SubjectsPage() {
           {meta.page} / {totalPages}
         </span>
         <button
-          disabled={meta.page === totalPages || totalPages === 0}
-          onClick={() => setPage(meta.page + 1)}
+          disabled={meta.page === totalPages}
+          onClick={() => handlePageChange(meta.page + 1)}
           className="px-3 py-1 rounded border disabled:opacity-50"
         >
           Next
         </button>
       </div>
 
-      {/* Modals */}
       {isAddModalOpen && (
         <AddSubjectModal
           isOpen={isAddModalOpen}
           onClose={() => setIsAddModalOpen(false)}
-          onSuccess={(newSubject: Subject) => {
-            setHighlightId(newSubject.id);
-            setPage(1);
+          onSuccess={(newSub) => {
+            setHighlightId(newSub.id);
+            handlePageChange(1);
           }}
         />
       )}
@@ -256,7 +255,7 @@ export default function SubjectsPage() {
           subjectId={editModal.subjectId}
           onClose={() => setEditModal({ open: false })}
           onSuccess={() =>
-            fetchSubjects({
+            subjectsStore.fetchSubjects({
               page: meta.page,
               search: localSearch,
               filters: localFilters,
@@ -271,19 +270,8 @@ export default function SubjectsPage() {
             subjects.find((s) => s.id === deleteModal.subjectId)?.name ||
             "Subject"
           }
-          subjectClasses={
-            subjects.find((s) => s.id === deleteModal.subjectId)?.classes || []
-          }
           onClose={() => setDeleteModal({ open: false })}
-          onSuccess={() => {
-            setDeleteModal({ open: false });
-            if (highlightId === deleteModal.subjectId) setHighlightId(null);
-            fetchSubjects({
-              page: meta.page,
-              search: localSearch,
-              filters: localFilters,
-            });
-          }}
+          onSuccess={() => handleDelete(deleteModal.subjectId!)}
         />
       )}
     </div>
@@ -291,8 +279,22 @@ export default function SubjectsPage() {
 }
 
 /*
-Design reasoning → Added focus on search input for initial load to improve usability; removed date filters to simplify UX; highlights new/edited subjects; modals provide clear feedback.
-Structure → SubjectsPage: main component; renderRows: table renderer; state split between modals, search, filters, highlights.
-Implementation guidance → Drop into page.tsx; search auto-focus; filters limited to class/staff; modals reusable.
-Scalability insight → Can add more filters or default search criteria without changing core table/pagination logic.
+Design reasoning:
+- Fully decoupled fetch triggers prevent infinite loop.
+- Search, filters, pagination explicitly call fetchSubjects.
+- Dropdown fetch occurs only once on mount.
+- Debounce prevents rapid API calls and preserves UX.
+
+Structure:
+- SubjectsPage component manages localSearch, localFilters, highlightId, modals.
+- Table rows, pagination, and modals fully encapsulated.
+- Fetch logic explicitly tied to user actions.
+
+Implementation guidance:
+- Ensure Zustand stores have memoized fetchSubjects.
+- Avoid passing store functions directly to useEffect dependencies.
+- Debounced search triggers only when user types.
+
+Scalability insight:
+- Additional filters or sorts can be added without risk of loops by using the same explicit trigger pattern.
 */

@@ -26,7 +26,7 @@ export default function ConfirmDeleteModal({
   const handleDelete = async () => {
     try {
       const success = await deleteSubject(subjectId);
-      if (success && onSuccess) onSuccess(); // Refresh table & close modal
+      if (success && onSuccess) onSuccess(); // triggers parent to close modal & refresh
     } catch (err: any) {
       setError(err.message || "Failed to delete");
     }

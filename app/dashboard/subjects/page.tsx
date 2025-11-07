@@ -268,19 +268,26 @@ export default function SubjectsPage() {
         />
       )}
 
-      {deleteModal.open && deleteModal.subjectId && deleteModal.subjectName && (
+      {deleteModal.open && deleteModal.subjectId && (
         <ConfirmDeleteModal
           subjectId={deleteModal.subjectId}
-          subjectName={deleteModal.subjectName}
-          subjectClasses={deleteModal.subjectClasses}
+          subjectName={
+            subjects.find((s) => s.id === deleteModal.subjectId)?.name ||
+            "Subject"
+          }
+          subjectClasses={
+            subjects.find((s) => s.id === deleteModal.subjectId)?.classes || []
+          }
           onClose={() => setDeleteModal({ open: false })}
-          onSuccess={() =>
+          onSuccess={() => {
+            setDeleteModal({ open: false }); // <-- closes modal after deletion
+            if (highlightId === deleteModal.subjectId) setHighlightId(null);
             fetchSubjects({
               page: meta.page,
               search: localSearch,
               filters: localFilters,
-            })
-          }
+            }); // refresh table
+          }}
         />
       )}
     </div>

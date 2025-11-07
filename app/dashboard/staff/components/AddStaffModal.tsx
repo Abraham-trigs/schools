@@ -16,7 +16,7 @@ import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useStaffStore } from "@/app/store/useStaffStore";
 import { useClassesStore } from "@/app/store/useClassesStore";
-import { useSubjectsStore } from "@/app/store/subjectStore.ts";
+import { useSubjectsStore } from "@/app/store/subjectStore.ts"; // Correct import
 import {
   roleToDepartment,
   roleRequiresClass,
@@ -48,7 +48,7 @@ interface AddStaffModalProps {
 export default function AddStaffModal({ isOpen, onClose }: AddStaffModalProps) {
   const { createStaff, loading: isLoading } = useStaffStore();
   const { classes, fetchClasses } = useClassesStore();
-  const { subjects, fetchSubjects } = useSubjectStore();
+  const { subjects, fetchSubjects } = useSubjectsStore(); // FIX: match imported function name
 
   const {
     register,

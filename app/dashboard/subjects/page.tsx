@@ -1,9 +1,9 @@
 // app/dashboard/subjects/page.tsx
-// Purpose: Subjects management page with search, filters, pagination, add/edit/delete modals, fully synced to Zustand store and API
+// Purpose: Subjects management page without date filters, with search, pagination, add/edit/delete modals, fully synced to Zustand store and API. Search input focused on initial load.
 
 "use client";
 
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback, useRef } from "react";
 import { Loader2, Plus } from "lucide-react";
 import { debounce } from "lodash";
 import { useSubjectsStore, Subject } from "@/app/store/subjectStore.ts";
@@ -12,26 +12,29 @@ import EditSubjectModal from "./components/EditSubjectModal";
 import ConfirmDeleteModal from "./components/ConfirmDeleteModal";
 
 export default function SubjectsPage() {
-  const [localSearch, setLocalSearch] = useState("");
-  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  // ------------------------- Refs -------------------------
+  const searchInputRef = useRef<HTMLInputElement>(null); // Ref to focus input on first load
+
+  // ------------------------- Local State -------------------------
+  const [localSearch, setLocalSearch] = useState(""); // Current search string
+  const [isAddModalOpen, setIsAddModalOpen] = useState(false); // Add modal toggle
   const [editModal, setEditModal] = useState<{
     open: boolean;
     subjectId?: string;
-  }>({ open: false });
+  }>({ open: false }); // Edit modal state
   const [deleteModal, setDeleteModal] = useState<{
     open: boolean;
     subjectId?: string;
     subjectName?: string;
     subjectClasses?: { id: string; name: string }[];
-  }>({ open: false });
-  const [highlightId, setHighlightId] = useState<string | null>(null);
+  }>({ open: false }); // Delete modal state
+  const [highlightId, setHighlightId] = useState<string | null>(null); // Highlight newly added/edited subject
   const [localFilters, setLocalFilters] = useState({
     classId: "",
     staffId: "",
-    fromDate: "",
-    toDate: "",
-  });
+  }); // Filter state
 
+  // ------------------------- Store -------------------------
   const {
     subjects,
     meta,
@@ -42,8 +45,12 @@ export default function SubjectsPage() {
     setPage,
     setFilters,
   } = useSubjectsStore();
+  const totalPages = Math.max(1, Math.ceil(meta.total / meta.limit)); // Compute total pages for pagination
 
-  const totalPages = Math.max(1, Math.ceil(meta.total / meta.limit));
+  // ------------------------- Focus search on mount -------------------------
+  useEffect(() => {
+    searchInputRef.current?.focus(); // Focus the search input when component mounts
+  }, []);
 
   // ------------------------- Fetch Subjects -------------------------
   useEffect(() => {
@@ -57,33 +64,33 @@ export default function SubjectsPage() {
   // ------------------------- Debounced Search -------------------------
   const debouncedSearch = useCallback(
     debounce((query: string) => {
-      setPage(1);
-      setSearch(query);
-      fetchSubjects({ page: 1, search: query, filters: localFilters });
+      setPage(1); // Reset to first page on search
+      setSearch(query); // Update store search
+      fetchSubjects({ page: 1, search: query, filters: localFilters }); // Fetch filtered subjects
     }, 400),
     [fetchSubjects, setSearch, setPage, localFilters]
   );
 
   useEffect(() => {
-    debouncedSearch(localSearch);
+    debouncedSearch(localSearch); // Trigger debounced search whenever input changes
   }, [localSearch, debouncedSearch]);
 
-  // ------------------------- Handle Delete -------------------------
+  // ------------------------- Delete Handler -------------------------
   const handleDelete = async (id: string) => {
-    const success = await deleteSubject(id);
+    const success = await deleteSubject(id); // Call store delete
     if (success) {
-      setDeleteModal({ open: false });
-      if (highlightId === id) setHighlightId(null);
+      setDeleteModal({ open: false }); // Close modal
+      if (highlightId === id) setHighlightId(null); // Remove highlight if deleting highlighted item
     }
   };
 
-  // ------------------------- Handle Filter Change -------------------------
+  // ------------------------- Filter Handler -------------------------
   const handleFilterChange = (key: string, value: string) => {
-    const newFilters = { ...localFilters, [key]: value };
+    const newFilters = { ...localFilters, [key]: value }; // Update local filter
     setLocalFilters(newFilters);
-    setFilters(newFilters);
-    setPage(1);
-    fetchSubjects({ page: 1, search: localSearch, filters: newFilters });
+    setFilters(newFilters); // Update store filters
+    setPage(1); // Reset page
+    fetchSubjects({ page: 1, search: localSearch, filters: newFilters }); // Fetch filtered subjects
   };
 
   // ------------------------- Render Table Rows -------------------------
@@ -125,8 +132,8 @@ export default function SubjectsPage() {
             type="button"
             className="px-2 py-1 rounded bg-blue-500 text-white text-sm hover:bg-blue-600"
             onClick={(e) => {
-              e.stopPropagation();
-              setEditModal({ open: true, subjectId: subject.id });
+              e.stopPropagation(); // Prevent row click propagation
+              setEditModal({ open: true, subjectId: subject.id }); // Open edit modal
             }}
           >
             Edit
@@ -158,41 +165,32 @@ export default function SubjectsPage() {
       <div className="flex flex-col md:flex-row justify-between items-center gap-4 mt-7">
         <h1 className="text-2xl font-semibold">Subjects</h1>
         <div className="flex gap-2 flex-wrap">
+          {/* Search Input */}
           <input
+            ref={searchInputRef} // Ref used to auto-focus
             type="text"
             placeholder="Search subjects..."
             value={localSearch}
             onChange={(e) => setLocalSearch(e.target.value)}
             className="px-3 py-2 border rounded-md focus:outline-none focus:ring focus:ring-ford-primary"
           />
+          {/* Class Filter */}
           <select
             value={localFilters.classId}
             onChange={(e) => handleFilterChange("classId", e.target.value)}
             className="px-2 py-1 border rounded-md focus:outline-none"
           >
             <option value="">All Classes</option>
-            {/* Populate dynamically if needed */}
           </select>
+          {/* Staff Filter */}
           <select
             value={localFilters.staffId}
             onChange={(e) => handleFilterChange("staffId", e.target.value)}
             className="px-2 py-1 border rounded-md focus:outline-none"
           >
             <option value="">All Staff</option>
-            {/* Populate dynamically if needed */}
           </select>
-          <input
-            type="date"
-            value={localFilters.fromDate}
-            onChange={(e) => handleFilterChange("fromDate", e.target.value)}
-            className="px-2 py-1 border rounded-md focus:outline-none"
-          />
-          <input
-            type="date"
-            value={localFilters.toDate}
-            onChange={(e) => handleFilterChange("toDate", e.target.value)}
-            className="px-2 py-1 border rounded-md focus:outline-none"
-          />
+          {/* Add Subject Button */}
           <button
             type="button"
             onClick={() => setIsAddModalOpen(true)}
@@ -252,7 +250,6 @@ export default function SubjectsPage() {
           }}
         />
       )}
-
       {editModal.open && editModal.subjectId && (
         <EditSubjectModal
           isOpen={editModal.open}
@@ -267,7 +264,6 @@ export default function SubjectsPage() {
           }
         />
       )}
-
       {deleteModal.open && deleteModal.subjectId && (
         <ConfirmDeleteModal
           subjectId={deleteModal.subjectId}
@@ -280,16 +276,23 @@ export default function SubjectsPage() {
           }
           onClose={() => setDeleteModal({ open: false })}
           onSuccess={() => {
-            setDeleteModal({ open: false }); // <-- closes modal after deletion
+            setDeleteModal({ open: false });
             if (highlightId === deleteModal.subjectId) setHighlightId(null);
             fetchSubjects({
               page: meta.page,
               search: localSearch,
               filters: localFilters,
-            }); // refresh table
+            });
           }}
         />
       )}
     </div>
   );
 }
+
+/*
+Design reasoning → Added focus on search input for initial load to improve usability; removed date filters to simplify UX; highlights new/edited subjects; modals provide clear feedback.
+Structure → SubjectsPage: main component; renderRows: table renderer; state split between modals, search, filters, highlights.
+Implementation guidance → Drop into page.tsx; search auto-focus; filters limited to class/staff; modals reusable.
+Scalability insight → Can add more filters or default search criteria without changing core table/pagination logic.
+*/

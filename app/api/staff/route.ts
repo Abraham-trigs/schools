@@ -84,7 +84,9 @@ export async function POST(req: NextRequest) {
     const role = inferRoleFromPosition(data.position);
     const departmentName = inferDepartmentFromPosition(data.position);
     const department = departmentName
-      ? await prisma.department.findUnique({ where: { name: departmentName } })
+      ? await prisma.department.findUnique({
+          where: { name_schoolId: { name: departmentName, schoolId: user.schoolId } },
+        })
       : null;
 
     return await prisma.$transaction(async (tx) => {
@@ -100,7 +102,7 @@ export async function POST(req: NextRequest) {
           email: data.email,
           password: hashedPassword,
           role,
-          schoolId: user.schoolId, // ✅ Use schoolId for scoping
+          schoolId: user.schoolId,
         },
       });
 
@@ -127,11 +129,3 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
 }
-
-/* Design reasoning:
-- Staff GET/POST now uses schoolId for scoping, consistent with Student API.
-- Supports pagination, search, filtering by role/department.
-- Multi-subject support via Prisma many-to-many connect.
-- POST hashes passwords securely and infers role/department/class.
-- Transaction ensures consistent creation of user + staff record.
-*/

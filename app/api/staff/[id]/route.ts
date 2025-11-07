@@ -1,5 +1,7 @@
+// ---------------------------------------------
 // app/api/staff/[id]/route.ts
-// Purpose: Update or delete a staff member scoped to authenticated user's school using schoolId, supporting multiple subjects and department inference.
+// Purpose: Update or delete staff member safely, scoped by schoolId with subjects, class, and department updates
+// ---------------------------------------------
 
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
@@ -7,7 +9,6 @@ import { z } from "zod";
 import { cookieUser } from "@/lib/cookieUser";
 import { inferDepartmentFromPosition, requiresClass } from "@/lib/api/constants/roleInference.ts";
 
-// ------------------------- Schemas -------------------------
 const staffUpdateSchema = z.object({
   name: z.string().optional(),
   email: z.string().email().optional(),
@@ -16,7 +17,6 @@ const staffUpdateSchema = z.object({
   subjects: z.array(z.string()).optional(),
 });
 
-// ------------------------- PUT: Update staff -------------------------
 export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
   const currentUser = await cookieUser();
   if (!currentUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -31,13 +31,14 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     });
     if (!staff) return NextResponse.json({ error: "Staff not found" }, { status: 404 });
 
-    // ✅ Use schoolId for scoping
     if (staff.user.schoolId !== currentUser.schoolId)
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
     const departmentName = data.position ? inferDepartmentFromPosition(data.position) : null;
     const department = departmentName
-      ? await prisma.department.findUnique({ where: { name: departmentName } })
+      ? await prisma.department.findUnique({
+          where: { name_schoolId: { name: departmentName, schoolId: currentUser.schoolId } },
+        })
       : null;
 
     const updateData: any = {
@@ -48,7 +49,6 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     };
 
     const updated = await prisma.$transaction(async (tx) => {
-      // Update user if needed
       if (data.name || data.email) {
         await tx.user.update({
           where: { id: staff.userId },
@@ -66,15 +66,11 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     return NextResponse.json({ staff: updated });
   } catch (err: any) {
     if (err instanceof z.ZodError)
-      return NextResponse.json(
-        { error: { message: "Validation failed", details: err.errors } },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: { message: "Validation failed", details: err.errors } }, { status: 400 });
     return NextResponse.json({ error: { message: err.message || "Internal Server Error" } }, { status: 500 });
   }
 }
 
-// ------------------------- DELETE: Remove staff -------------------------
 export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
   const currentUser = await cookieUser();
   if (!currentUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -85,7 +81,6 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
   });
   if (!staff) return NextResponse.json({ error: "Staff not found" }, { status: 404 });
 
-  // ✅ Use schoolId for scoping
   if (staff.user.schoolId !== currentUser.schoolId)
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
@@ -96,13 +91,3 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
     return NextResponse.json({ error: { message: "Internal Server Error" } }, { status: 500 });
   }
 }
-
-/* Design reasoning:
-- PUT & DELETE now consistently use schoolId for scoping (like Students API).
-- PUT updates user fields, staff record, subjects, class, and department in a single transaction.
-- DELETE removes staff safely and prevents cross-school deletion.
-- Validation errors return structured messages.
-Scalability insight:
-- Adding new relational fields or roles requires minimal changes.
-- Supports transactional safety for future updates (e.g., linked assignments, logs, subjects).
-*/

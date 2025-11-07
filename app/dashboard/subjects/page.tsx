@@ -21,6 +21,8 @@ export default function SubjectsPage() {
   const [deleteModal, setDeleteModal] = useState<{
     open: boolean;
     subjectId?: string;
+    subjectName?: string;
+    subjectClasses?: { id: string; name: string }[];
   }>({ open: false });
   const [highlightId, setHighlightId] = useState<string | null>(null);
   const [localFilters, setLocalFilters] = useState({
@@ -33,7 +35,7 @@ export default function SubjectsPage() {
   const {
     subjects,
     meta,
-    loading,
+    loadingFetch,
     fetchSubjects,
     deleteSubject,
     setSearch,
@@ -43,14 +45,14 @@ export default function SubjectsPage() {
 
   const totalPages = Math.max(1, Math.ceil(meta.total / meta.limit));
 
-  // ------------------------- Initial Fetch -------------------------
+  // ------------------------- Fetch Subjects -------------------------
   useEffect(() => {
     fetchSubjects({
       page: meta.page,
       search: localSearch,
       filters: localFilters,
     });
-  }, [meta.page, fetchSubjects, localSearch, localFilters]);
+  }, [meta.page, localSearch, localFilters, fetchSubjects]);
 
   // ------------------------- Debounced Search -------------------------
   const debouncedSearch = useCallback(
@@ -68,9 +70,11 @@ export default function SubjectsPage() {
 
   // ------------------------- Handle Delete -------------------------
   const handleDelete = async (id: string) => {
-    await deleteSubject(id);
-    setDeleteModal({ open: false });
-    if (highlightId === id) setHighlightId(null);
+    const success = await deleteSubject(id);
+    if (success) {
+      setDeleteModal({ open: false });
+      if (highlightId === id) setHighlightId(null);
+    }
   };
 
   // ------------------------- Handle Filter Change -------------------------
@@ -84,7 +88,7 @@ export default function SubjectsPage() {
 
   // ------------------------- Render Table Rows -------------------------
   const renderRows = () => {
-    if (loading) {
+    if (loadingFetch) {
       return (
         <tr key="loading">
           <td colSpan={6} className="text-center py-6">
@@ -132,7 +136,12 @@ export default function SubjectsPage() {
             className="px-2 py-1 rounded bg-red-500 text-white text-sm hover:bg-red-600"
             onClick={(e) => {
               e.stopPropagation();
-              setDeleteModal({ open: true, subjectId: subject.id });
+              setDeleteModal({
+                open: true,
+                subjectId: subject.id,
+                subjectName: subject.name,
+                subjectClasses: subject.classes,
+              });
             }}
           >
             Delete
@@ -162,7 +171,7 @@ export default function SubjectsPage() {
             className="px-2 py-1 border rounded-md focus:outline-none"
           >
             <option value="">All Classes</option>
-            {/* Dynamically populate from store or API */}
+            {/* Populate dynamically if needed */}
           </select>
           <select
             value={localFilters.staffId}
@@ -170,7 +179,7 @@ export default function SubjectsPage() {
             className="px-2 py-1 border rounded-md focus:outline-none"
           >
             <option value="">All Staff</option>
-            {/* Dynamically populate from store or API */}
+            {/* Populate dynamically if needed */}
           </select>
           <input
             type="date"
@@ -259,21 +268,21 @@ export default function SubjectsPage() {
         />
       )}
 
-      {deleteModal.open && deleteModal.subjectId && (
+      {deleteModal.open && deleteModal.subjectId && deleteModal.subjectName && (
         <ConfirmDeleteModal
-          title="Delete Subject"
-          message="Are you sure you want to delete this subject?"
-          onConfirm={() => handleDelete(deleteModal.subjectId!)}
+          subjectId={deleteModal.subjectId}
+          subjectName={deleteModal.subjectName}
+          subjectClasses={deleteModal.subjectClasses}
           onClose={() => setDeleteModal({ open: false })}
+          onSuccess={() =>
+            fetchSubjects({
+              page: meta.page,
+              search: localSearch,
+              filters: localFilters,
+            })
+          }
         />
       )}
     </div>
   );
 }
-
-/*
-Design reasoning → Full page CRUD UX with search, filters, pagination, and modals for add/edit/delete
-Structure → Local state for modals, search, filters; fetch synced to Zustand store; table renders dynamic data with highlighting
-Implementation guidance → Debounced search, normalized filters, optimistic updates on add/delete, consistent error handling
-Scalability insight → Can add multi-column sorting, bulk actions, export, and real-time updates without changing core store or API
-*/

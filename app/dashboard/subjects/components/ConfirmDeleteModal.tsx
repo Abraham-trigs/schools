@@ -6,9 +6,10 @@ import { useSubjectsStore } from "@/app/store/subjectStore.ts";
 
 interface ConfirmDeleteModalProps {
   onClose: () => void;
-  onSuccess?: () => void; // Callback after successful deletion (e.g., refresh table)
+  onSuccess?: () => void; // Callback after successful deletion
   subjectId: string;
   subjectName: string;
+  subjectClasses?: { id: string; name: string }[];
 }
 
 export default function ConfirmDeleteModal({
@@ -16,17 +17,18 @@ export default function ConfirmDeleteModal({
   onSuccess,
   subjectId,
   subjectName,
+  subjectClasses = [],
 }: ConfirmDeleteModalProps) {
-  const { deleteSubject, loading } = useSubjectStore();
+  const { deleteSubject, loadingDelete } = useSubjectsStore();
   const [error, setError] = useState<string | null>(null);
 
   // ------------------------- Delete handler -------------------------
   const handleDelete = async () => {
     try {
-      await deleteSubject(subjectId);
-      if (onSuccess) onSuccess(); // Refresh table & close modal
+      const success = await deleteSubject(subjectId);
+      if (success && onSuccess) onSuccess(); // Refresh table & close modal
     } catch (err: any) {
-      setError(err.message);
+      setError(err.message || "Failed to delete");
     }
   };
 
@@ -40,14 +42,20 @@ export default function ConfirmDeleteModal({
           action cannot be undone.
         </p>
 
-        {error && <p className="text-red-500">{error}</p>}
+        {subjectClasses.length > 0 && (
+          <div className="mb-4 text-sm text-gray-700">
+            Assigned Classes: {subjectClasses.map((c) => c.name).join(", ")}
+          </div>
+        )}
+
+        {error && <p className="text-red-500 mb-2">{error}</p>}
 
         <div className="flex justify-end space-x-2">
           <button
             type="button"
             onClick={onClose}
             className="px-4 py-2 border rounded"
-            disabled={loading}
+            disabled={loadingDelete}
           >
             Cancel
           </button>
@@ -55,9 +63,9 @@ export default function ConfirmDeleteModal({
             type="button"
             onClick={handleDelete}
             className="px-4 py-2 bg-red-600 text-white rounded"
-            disabled={loading}
+            disabled={loadingDelete}
           >
-            {loading ? "Deleting..." : "Delete"}
+            {loadingDelete ? "Deleting..." : "Delete"}
           </button>
         </div>
       </div>
@@ -66,20 +74,20 @@ export default function ConfirmDeleteModal({
 }
 
 /* Design reasoning:
-- Provides a clear, focused confirmation modal before destructive actions.
-- Uses Zustand store to manage deletion and loading state for optimistic UI feedback.
-- Displays errors inline for immediate feedback.
+- Overlay ensures the user focuses on the destructive action.
+- Shows assigned classes to give context before deletion.
+- Zustand manages deletion state, providing loading and optimistic UI feedback.
+- Inline errors provide immediate feedback.
 
 Structure:
-- Overlay container with centered modal panel.
-- Title, message with subject name, error display, and action buttons.
-- Cancel closes modal; Delete triggers store action.
+- Overlay → Modal container → Title → Message → Assigned classes → Error → Actions
+- Cancel closes modal, Delete triggers store action.
 
 Implementation guidance:
-- `onSuccess` should refresh parent list or close modal.
-- Disabled state ensures user cannot trigger multiple requests.
+- `onSuccess` refreshes parent page or closes modal.
+- Disabled state prevents duplicate clicks.
 
 Scalability insight:
-- Can be reused for any entity deletion by passing `subjectId`/`subjectName` props.
-- Easy to extend with additional confirmations or warnings.
+- Can handle any entity with a name and optional metadata.
+- Easily extendable with multiple entities, analytics, or extra warnings.
 */

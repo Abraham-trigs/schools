@@ -62,36 +62,44 @@ export const useSubjectsStore = create<SubjectsStore>()(
     cache: { classes: {}, staff: {} },
 
     // ---------------- Fetch ----------------
-    fetchSubjects: async ({ page, limit, search } = {}) => {
-      set({ loadingFetch: true, error: null });
-      try {
-        const query = new URLSearchParams();
-        query.set("page", String(page ?? get().page));
-        query.set("limit", String(limit ?? get().limit));
-        if (search ?? get().search) query.set("search", search ?? get().search);
+fetchSubjects: async ({ page, limit, search, filters } = {}) => {
+  set({ loadingFetch: true, error: null });
+  try {
+    const query = new URLSearchParams();
+    query.set("page", String(page ?? get().page));
+    query.set("limit", String(limit ?? get().limit));
+    if (search ?? get().search) query.set("search", search ?? get().search);
 
-        const res = await fetch(`/api/subjects?${query.toString()}`);
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || "Failed to fetch subjects");
+    // Add filters
+    if (filters) {
+      if (filters.classId) query.set("classId", filters.classId);
+      if (filters.staffId) query.set("staffId", filters.staffId);
+      if (filters.fromDate) query.set("fromDate", filters.fromDate);
+      if (filters.toDate) query.set("toDate", filters.toDate);
+    }
 
-        // Cache classes/staff
-        const classCache: Record<string, { id: string; name: string }> = {};
-        const staffCache: Record<string, { id: string; name: string }> = {};
-        data.data.forEach((s: Subject) => {
-          s.classes?.forEach(c => (classCache[c.id] = c));
-          s.staff?.forEach(su => (staffCache[su.id] = su));
-        });
+    const res = await fetch(`/api/subjects?${query.toString()}`);
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Failed to fetch subjects");
 
-        set({
-          subjects: data.data,
-          meta: data.meta,
-          cache: { classes: classCache, staff: staffCache },
-          loadingFetch: false,
-        });
-      } catch (err: any) {
-        set({ error: err.message || "Failed to fetch subjects", loadingFetch: false });
-      }
-    },
+    // Cache classes/staff for selects
+    const classCache: Record<string, { id: string; name: string }> = {};
+    const staffCache: Record<string, { id: string; name: string }> = {};
+    data.data.forEach((s: Subject) => {
+      s.classes?.forEach(c => (classCache[c.id] = c));
+      s.staff?.forEach(st => (staffCache[st.id] = st));
+    });
+
+    set({
+      subjects: data.data,
+      meta: data.meta,
+      cache: { classes: classCache, staff: staffCache },
+      loadingFetch: false,
+    });
+  } catch (err: any) {
+    set({ error: err.message || "Failed to fetch subjects", loadingFetch: false });
+  }
+},
 
     // ---------------- Create ----------------
     createSubject: async (payload) => {

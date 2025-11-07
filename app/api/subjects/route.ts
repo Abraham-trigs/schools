@@ -8,6 +8,8 @@ const subjectSchema = z.object({
   name: z.string().min(1, "Name is required").trim(),
   code: z.string().optional().nullable().transform((v) => (v ? v.toUpperCase() : null)),
   description: z.string().optional().nullable(),
+  classIds: z.array(z.string()).optional(),
+  staffIds: z.array(z.string()).optional(),
 });
 
 // ------------------------- Helpers -------------------------
@@ -15,13 +17,18 @@ const normalizeInput = (input: any) => ({
   name: input.name?.trim(),
   code: input.code?.trim().toUpperCase() || null,
   description: input.description?.trim() || null,
+  classIds: input.classIds || [],
+  staffIds: input.staffIds || [],
 });
+
+const jsonError = (payload: { error: string | Record<string, string[]> }, status = 400) =>
+  NextResponse.json(payload, { status });
 
 // ------------------------- GET: List Subjects -------------------------
 export async function GET(req: NextRequest) {
   try {
     const user = await cookieUser();
-    if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    if (!user) return jsonError({ error: "Unauthorized" }, 401);
 
     const { searchParams } = new URL(req.url);
     const page = Number(searchParams.get("page") || 1);
@@ -29,8 +36,6 @@ export async function GET(req: NextRequest) {
     const search = searchParams.get("search")?.trim() || "";
     const classId = searchParams.get("classId");
     const staffId = searchParams.get("staffId");
-    const fromDate = searchParams.get("fromDate");
-    const toDate = searchParams.get("toDate");
 
     const where: any = { schoolId: user.schoolId };
 
@@ -41,19 +46,18 @@ export async function GET(req: NextRequest) {
         { description: { contains: search, mode: "insensitive" } },
       ];
     }
-    if (classId) where.classes = { some: { id: classId } };
-    if (staffId) where.staff = { some: { id: staffId } };
 
-    if (fromDate || toDate) {
-      where.createdAt = {};
-      if (fromDate) where.createdAt.gte = new Date(fromDate);
-      if (toDate) where.createdAt.lte = new Date(toDate);
-    }
+    if (classId) where.classes = { some: { id: classId } };
+    if (staffId) where.staff = { some: { userId: staffId } };
 
     const [data, total] = await prisma.$transaction([
       prisma.subject.findMany({
         where,
-        include: { createdBy: { select: { id: true, name: true, role: true } } },
+        include: {
+          createdBy: { select: { id: true, name: true, role: true } },
+          classes: { select: { id: true, name: true } },
+          staff: { select: { id: true, user: { select: { id: true, name: true } } } },
+        },
         orderBy: { name: "asc" },
         skip: (page - 1) * limit,
         take: limit,
@@ -64,7 +68,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ data, meta: { total, page, limit } });
   } catch (err: any) {
     console.error("GET /api/subjects error:", err);
-    return NextResponse.json({ error: err.message || "Failed to fetch subjects" }, { status: 500 });
+    return jsonError({ error: err.message || "Failed to fetch subjects" }, 500);
   }
 }
 
@@ -72,45 +76,42 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const user = await cookieUser();
-    if (!user)
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    if (!user) return jsonError({ error: "Unauthorized" }, 401);
 
-    // Role-based enforcement
     if (!["ADMIN", "PRINCIPAL"].includes(user.role))
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      return jsonError({ error: "Forbidden" }, 403);
 
     const body = await req.json();
     const data = normalizeInput(body);
 
     const parsed = subjectSchema.safeParse(data);
-    if (!parsed.success)
-      return NextResponse.json({ error: parsed.error.flatten().fieldErrors }, { status: 400 });
+    if (!parsed.success) return jsonError({ error: parsed.error.flatten().fieldErrors }, 400);
 
-    // Transaction: check duplicates and create
     const newSubject = await prisma.$transaction(async (tx) => {
       const exists = await tx.subject.findFirst({
         where: { name: parsed.data.name, schoolId: user.schoolId },
       });
       if (exists) throw new Error("Subject name already exists");
 
-      // Create subject and return with full relations
+      // ✅ Correct usage of relations
       return tx.subject.create({
         data: {
-          ...parsed.data,
+          name: parsed.data.name,
+          code: parsed.data.code,
+          description: parsed.data.description,
           schoolId: user.schoolId,
           createdById: user.id,
-          // If you want, you can allow initial classes/staff connection
-          classes: parsed.data.classIds
+          classes: parsed.data.classIds.length
             ? { connect: parsed.data.classIds.map((id) => ({ id })) }
             : undefined,
-          staff: parsed.data.staffIds
+          staff: parsed.data.staffIds.length
             ? { connect: parsed.data.staffIds.map((id) => ({ id })) }
             : undefined,
         },
         include: {
           createdBy: { select: { id: true, name: true, role: true } },
           classes: { select: { id: true, name: true } },
-          staff: { select: { id: true, name: true } },
+          staff: { select: { id: true, user: { select: { id: true, name: true } } } },
         },
       });
     });
@@ -119,7 +120,6 @@ export async function POST(req: NextRequest) {
   } catch (err: any) {
     console.error("POST /api/subjects error:", err);
     const status = err.message.includes("exists") ? 409 : 500;
-    return NextResponse.json({ error: err.message || "Failed to create subject" }, { status });
+    return jsonError({ error: err.message || "Failed to create subject" }, status);
   }
 }
-

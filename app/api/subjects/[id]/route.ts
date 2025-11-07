@@ -3,10 +3,9 @@ import { prisma } from "@/lib/prisma";
 import { cookieUser } from "@/lib/cookieUser";
 import { z } from "zod";
 
-// ------------------------- Schema -------------------------
 const subjectSchema = z.object({
-  name: z.string().min(1, "Name is required").trim(),
-  code: z.string().optional().nullable().transform((v) => (v ? v.toUpperCase() : null)),
+  name: z.string().min(1).trim(),
+  code: z.string().optional().nullable().transform((v) => v?.toUpperCase() ?? null),
   description: z.string().optional().nullable(),
   classIds: z.array(z.string()).optional(),
   staffIds: z.array(z.string()).optional(),
@@ -34,7 +33,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
       include: {
         createdBy: { select: { id: true, name: true, role: true } },
         classes: { select: { id: true, name: true } },
-        staff: { select: { id: true, name: true } },
+        staff: { select: { id: true, user: { select: { id: true, name: true } } } },
       },
     });
 
@@ -52,20 +51,16 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     const user = await cookieUser();
     if (!user) return jsonError({ error: "Unauthorized" }, 401);
 
-    // Role-based enforcement
     if (!["ADMIN", "PRINCIPAL"].includes(user.role))
       return jsonError({ error: "Forbidden" }, 403);
 
     const subjectId = params.id;
-    if (!subjectId) return jsonError({ error: "Missing subject id" }, 400);
-
     const raw = await req.json();
     const data = normalizeInput(raw);
 
     const parsed = subjectSchema.safeParse(data);
     if (!parsed.success) return jsonError({ error: parsed.error.flatten().fieldErrors }, 400);
 
-    // Transaction: fetch existing subject + check duplicates
     const [existing, duplicate] = await prisma.$transaction([
       prisma.subject.findFirst({ where: { id: subjectId, schoolId: user.schoolId } }),
       prisma.subject.findFirst({
@@ -76,11 +71,9 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     if (!existing) return jsonError({ error: "Subject not found" }, 404);
     if (duplicate) return jsonError({ error: "Subject name already exists" }, 409);
 
-    // Prepare relation updates
-    const classConnect = parsed.data.classIds?.map((id) => ({ id })) || [];
-    const staffConnect = parsed.data.staffIds?.map((id) => ({ id })) || [];
+    const classConnect = parsed.data.classIds.map((id) => ({ id })) || [];
+    const staffConnect = parsed.data.staffIds.map((id) => ({ id })) || [];
 
-    // Atomic update
     const updated = await prisma.subject.update({
       where: { id: subjectId },
       data: {
@@ -93,7 +86,7 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
       include: {
         createdBy: { select: { id: true, name: true, role: true } },
         classes: { select: { id: true, name: true } },
-        staff: { select: { id: true, name: true } },
+        staff: { select: { id: true, user: { select: { id: true, name: true } } } },
       },
     });
 
@@ -103,7 +96,6 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     return jsonError({ error: err.message || "Failed to update subject" }, 500);
   }
 }
-
 
 // ------------------------- DELETE: Remove Subject -------------------------
 export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {

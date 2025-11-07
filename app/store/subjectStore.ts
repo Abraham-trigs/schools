@@ -28,6 +28,12 @@ type SubjectsStore = {
   loadingUpdate: boolean;
   loadingDelete: boolean;
 
+  bulkErrors: Record<string, string>;
+  cache: {
+    classes: Record<string, { id: string; name: string }>;
+    staff: Record<string, { id: string; name: string }>;
+  };
+
   fetchSubjects: (opts?: { page?: number; limit?: number; search?: string }) => Promise<void>;
   createSubject: (payload: Partial<Subject>) => Promise<Subject | null>;
   updateSubject: (id: string, payload: Partial<Subject>) => Promise<Subject | null>;
@@ -52,6 +58,10 @@ export const useSubjectsStore = create<SubjectsStore>()(
     loadingUpdate: false,
     loadingDelete: false,
 
+    bulkErrors: {},
+    cache: { classes: {}, staff: {} },
+
+    // ---------------- Fetch ----------------
     fetchSubjects: async ({ page, limit, search } = {}) => {
       set({ loadingFetch: true, error: null });
       try {
@@ -64,12 +74,26 @@ export const useSubjectsStore = create<SubjectsStore>()(
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || "Failed to fetch subjects");
 
-        set({ subjects: data.data, meta: data.meta, loadingFetch: false });
+        // Cache classes/staff
+        const classCache: Record<string, { id: string; name: string }> = {};
+        const staffCache: Record<string, { id: string; name: string }> = {};
+        data.data.forEach((s: Subject) => {
+          s.classes?.forEach(c => (classCache[c.id] = c));
+          s.staff?.forEach(su => (staffCache[su.id] = su));
+        });
+
+        set({
+          subjects: data.data,
+          meta: data.meta,
+          cache: { classes: classCache, staff: staffCache },
+          loadingFetch: false,
+        });
       } catch (err: any) {
         set({ error: err.message || "Failed to fetch subjects", loadingFetch: false });
       }
     },
 
+    // ---------------- Create ----------------
     createSubject: async (payload) => {
       set({ loadingCreate: true, error: null });
       try {
@@ -89,7 +113,17 @@ export const useSubjectsStore = create<SubjectsStore>()(
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || "Failed to create subject");
 
-        set((state) => ({ subjects: [data, ...state.subjects], loadingCreate: false }));
+        // Update cache
+        const classCache = { ...get().cache.classes };
+        data.classes?.forEach((c: any) => (classCache[c.id] = c));
+        const staffCache = { ...get().cache.staff };
+        data.staff?.forEach((s: any) => (staffCache[s.id] = s));
+
+        set((state) => ({
+          subjects: [data, ...state.subjects],
+          cache: { classes: classCache, staff: staffCache },
+          loadingCreate: false,
+        }));
         return data;
       } catch (err: any) {
         set({ error: err.message || "Failed to create subject", loadingCreate: false });
@@ -97,6 +131,7 @@ export const useSubjectsStore = create<SubjectsStore>()(
       }
     },
 
+    // ---------------- Update ----------------
     updateSubject: async (id, payload) => {
       set({ loadingUpdate: true, error: null });
       try {
@@ -108,26 +143,45 @@ export const useSubjectsStore = create<SubjectsStore>()(
           staffIds: payload.staff?.map((s) => s.id) || [],
         };
 
+        // Optimistic update
+        const old = get().subjects.find(s => s.id === id);
+        set((state) => ({
+          subjects: state.subjects.map(s => s.id === id ? { ...s, ...body } : s)
+        }));
+
         const res = await fetch(`/api/subjects/${id}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body),
         });
-
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || "Failed to update subject");
 
+        // Update cache
+        const classCache = { ...get().cache.classes };
+        data.classes?.forEach((c: any) => (classCache[c.id] = c));
+        const staffCache = { ...get().cache.staff };
+        data.staff?.forEach((s: any) => (staffCache[s.id] = s));
+
         set((state) => ({
-          subjects: state.subjects.map((s) => (s.id === id ? data : s)),
+          subjects: state.subjects.map(s => s.id === id ? data : s),
+          cache: { classes: classCache, staff: staffCache },
           loadingUpdate: false,
         }));
         return data;
       } catch (err: any) {
-        set({ error: err.message || "Failed to update subject", loadingUpdate: false });
+        // rollback optimistic update
+        const old = get().subjects.find(s => s.id === id);
+        if (old) set((state) => ({
+          subjects: state.subjects.map(s => s.id === id ? old : s),
+          loadingUpdate: false,
+          error: err.message || "Failed to update subject"
+        }));
         return null;
       }
     },
 
+    // ---------------- Delete ----------------
     deleteSubject: async (id) => {
       set({ loadingDelete: true, error: null });
       try {
@@ -143,35 +197,58 @@ export const useSubjectsStore = create<SubjectsStore>()(
       }
     },
 
+    // ---------------- Bulk Update ----------------
     bulkUpdateSubjects: async (payloads) => {
-      set({ loadingUpdate: true, error: null });
-      try {
-        const updates = await Promise.all(
-          payloads.map(async (p) => {
-            const res = await fetch(`/api/subjects/${p.id}`, {
-              method: "PUT",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                classIds: p.classIds || [],
-                staffIds: p.staffIds || [],
-              }),
-            });
-            const data = await res.json();
-            if (!res.ok) throw new Error(data.error || "Failed to bulk update subject");
-            return data;
-          })
-        );
+      set({ loadingUpdate: true, bulkErrors: {}, error: null });
+      const oldSubjects = [...get().subjects];
 
-        set((state) => ({
-          subjects: state.subjects.map((s) => updates.find((u) => u.id === s.id) || s),
-          loadingUpdate: false,
-        }));
+      // Optimistically update subjects
+      set((state) => ({
+        subjects: state.subjects.map(s => {
+          const update = payloads.find(p => p.id === s.id);
+          if (!update) return s;
+          return {
+            ...s,
+            classes: update.classIds?.map(id => get().cache.classes[id]) || [],
+            staff: update.staffIds?.map(id => get().cache.staff[id]) || []
+          };
+        })
+      }));
 
-        return updates;
-      } catch (err: any) {
-        set({ error: err.message || "Failed to bulk update subjects", loadingUpdate: false });
-        return null;
-      }
+      const results: Subject[] = [];
+      const errors: Record<string, string> = {};
+
+      await Promise.all(payloads.map(async (p) => {
+        try {
+          const res = await fetch(`/api/subjects/${p.id}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ classIds: p.classIds || [], staffIds: p.staffIds || [] }),
+          });
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.error || "Failed to bulk update subject");
+          results.push(data);
+
+          // Update cache
+          const classCache = { ...get().cache.classes };
+          data.classes?.forEach((c: any) => (classCache[c.id] = c));
+          const staffCache = { ...get().cache.staff };
+          data.staff?.forEach((s: any) => (staffCache[s.id] = s));
+          set({ cache: { classes: classCache, staff: staffCache } });
+
+        } catch (err: any) {
+          errors[p.id] = err.message || "Failed to update";
+        }
+      }));
+
+      // Merge results into store
+      set((state) => ({
+        subjects: state.subjects.map(s => results.find(r => r.id === s.id) || s),
+        bulkErrors: errors,
+        loadingUpdate: false,
+      }));
+
+      return results.length > 0 ? results : null;
     },
 
     setSearch: (query) => set({ search: query }),
@@ -188,6 +265,8 @@ export const useSubjectsStore = create<SubjectsStore>()(
         loadingCreate: false,
         loadingUpdate: false,
         loadingDelete: false,
+        bulkErrors: {},
+        cache: { classes: {}, staff: {} },
       }),
   }))
 );

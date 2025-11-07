@@ -4,12 +4,12 @@ import React, { useEffect, useState, useCallback } from "react";
 import { Loader2, Plus } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { debounce } from "lodash";
-import { useStudentStore } from "@/stores/useStudentStore";
-import { useClassesStore } from "@/stores/useClassesStore";
-import { useStaffStore } from "@/stores/useStaffStore";
-import AddStudentModal from "./components/AddStudentModal";
-import EditStudentModal from "./components/EditStudentModal";
-import ConfirmDeleteModal from "./components/ConfirmDeleteModal";
+import { useStudentStore } from "@/app/store/useStudentStore.ts";
+import { useClassesStore } from "@/app/store/useClassesStore.ts";
+import { useStaffStore } from "@/app/store/useStaffStore.ts";
+import AddStudentModal from "./components/AddsubjectModal.tsx";
+import EditStudentModal from "./components/EditSubjectModal.tsx";
+import ConfirmDeleteModal from "./components/ConfirmDeleteModal.tsx";
 
 export default function StudentsPage() {
   const router = useRouter();

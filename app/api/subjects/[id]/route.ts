@@ -1,10 +1,11 @@
 // app/api/subjects/[id]/route.ts
-// Purpose: Retrieve, update, and delete a single Subject scoped to user's school
+// Purpose: Retrieve, update, and delete a single Subject scoped to user's school with role-based access
 
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { cookieUser } from "@/lib/cookieUser";
 import { z } from "zod";
+import { inferRoleFromPosition } from "@/lib/api/constants/roleInference";
 
 // ------------------------- Schema -------------------------
 const subjectSchema = z.object({
@@ -18,9 +19,9 @@ const subjectSchema = z.object({
 });
 
 type SubjectInput = z.infer<typeof subjectSchema>;
-type UserSession = { id: string; schoolId: string };
+type UserSession = { id: string; schoolId: string; position?: string };
 
-// Normalize input to ensure consistent types
+// Normalize input
 const normalizeInput = (input: any): any => ({
   name: typeof input.name === "string" ? input.name.trim() : input.name,
   code: typeof input.code === "string" ? input.code.trim().toUpperCase() : input.code,
@@ -65,6 +66,10 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     const user = (await cookieUser(req)) as UserSession | null;
     if (!user) return jsonError({ error: "Unauthorized" }, 401);
 
+    const role = inferRoleFromPosition(user.position);
+    if (!["ADMIN", "PRINCIPAL"].includes(role))
+      return jsonError({ error: "Forbidden" }, 403);
+
     const subjectId = params.id;
     if (!subjectId) return jsonError({ error: "Missing subject id" }, 400);
 
@@ -76,7 +81,6 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
 
     const payload: SubjectInput = parsed.data;
 
-    // Transaction: check existence + duplicate code before update
     const [existingSubject, duplicateCode] = await prisma.$transaction([
       prisma.subject.findFirst({ where: { id: subjectId, schoolId: user.schoolId }, select: { id: true } }),
       prisma.subject.findFirst({
@@ -107,13 +111,16 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
     const user = (await cookieUser(req)) as UserSession | null;
     if (!user) return jsonError({ error: "Unauthorized" }, 401);
 
+    const role = inferRoleFromPosition(user.position);
+    if (!["ADMIN", "PRINCIPAL"].includes(role))
+      return jsonError({ error: "Forbidden" }, 403);
+
     const subjectId = params.id;
     if (!subjectId) return jsonError({ error: "Missing subject id" }, 400);
 
     const subject = await prisma.subject.findFirst({ where: { id: subjectId, schoolId: user.schoolId }, select: { id: true } });
     if (!subject) return jsonError({ error: "Subject not found" }, 404);
 
-    // Delete the subject (consider soft-delete if relations exist)
     await prisma.subject.delete({ where: { id: subjectId } });
 
     return NextResponse.json({ success: true });
@@ -124,9 +131,22 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
 }
 
 /*
-Design notes:
-- GET returns full subject object + minimal `createdBy` relation for UI.
-- PUT validates input, checks duplicates, and updates within school scope.
-- DELETE ensures subject belongs to school before removing.
-- All routes use cookie-based auth and are scoped to `schoolId`.
+Design reasoning:
+- Adds role-based restrictions: only ADMIN/PRINCIPAL can PUT or DELETE.
+- GET allows all authenticated users to view subject details scoped to school.
+- Includes `createdBy` relation for audit/UI.
+- Normalizes input and validates to prevent inconsistent DB entries.
+
+Structure:
+- GET: fetch single subject.
+- PUT: update subject with duplicate code check.
+- DELETE: remove subject with school scope check.
+
+Implementation guidance:
+- Wire with frontend store for optimistic updates.
+- Combine with `useSubjectStore` and modals to reflect role-based UI/UX.
+
+Scalability insight:
+- Roles/permissions can be extended in `roleInference` without changing API logic.
+- Soft-delete or relation checks can be added without changing endpoint contracts.
 */

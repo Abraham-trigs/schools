@@ -1,11 +1,12 @@
 // app/api/subjects/route.ts
-// Purpose: List and create Subjects scoped to authenticated user's school
-// Features: Pagination, search, optional class filtering, creator info
+// Purpose: List and create Subjects scoped to authenticated user's school with role-based access
+// Features: Pagination, search, optional class filtering, creator info, role-based permissions
 
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { cookieUser } from "@/lib/cookieUser";
 import { z } from "zod";
+import { inferRoleFromPosition } from "@/lib/api/constants/roleInference";
 
 // ------------------------- Schema -------------------------
 const subjectSchema = z.object({
@@ -14,7 +15,7 @@ const subjectSchema = z.object({
   description: z.string().optional().nullable(),
 });
 
-// Normalize input to avoid inconsistencies
+// Normalize input
 const normalizeInput = (input: any) => ({
   name: input.name?.trim(),
   code: input.code?.trim().toUpperCase(),
@@ -27,13 +28,14 @@ export async function GET(req: NextRequest) {
     const user = await cookieUser(req);
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
+    const role = inferRoleFromPosition(user.position);
+
     const { searchParams } = new URL(req.url);
     const page = Number(searchParams.get("page") || 1);
     const limit = Number(searchParams.get("limit") || 10);
     const search = searchParams.get("search")?.trim() || "";
     const classId = searchParams.get("classId");
 
-    // Build dynamic where clause scoped to school
     const where: any = { schoolId: user.schoolId };
     if (search) {
       where.OR = [
@@ -41,9 +43,8 @@ export async function GET(req: NextRequest) {
         { code: { contains: search, mode: "insensitive" } },
       ];
     }
-    if (classId) where.classId = classId;
+    if (classId) where.classes = { some: { id: classId } };
 
-    // Transaction: fetch paginated subjects + total count atomically
     const [data, total] = await prisma.$transaction([
       prisma.subject.findMany({
         where,
@@ -68,19 +69,20 @@ export async function POST(req: NextRequest) {
     const user = await cookieUser(req);
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
+    const role = inferRoleFromPosition(user.position);
+    if (!["ADMIN", "PRINCIPAL"].includes(role))
+      return NextResponse.json({ error: "Unauthorized", status: 403 });
+
     const json = await req.json();
     const parsed = subjectSchema.safeParse(normalizeInput(json));
-    if (!parsed.success) {
+    if (!parsed.success)
       return NextResponse.json({ error: parsed.error.flatten().fieldErrors }, { status: 400 });
-    }
 
-    // Ensure unique code per school
     const exists = await prisma.subject.findFirst({
       where: { code: parsed.data.code, schoolId: user.schoolId },
     });
     if (exists) return NextResponse.json({ error: "Subject code already exists" }, { status: 409 });
 
-    // Create subject with creator tracking
     const subject = await prisma.subject.create({
       data: {
         ...parsed.data,
@@ -98,8 +100,20 @@ export async function POST(req: NextRequest) {
 }
 
 /*
-Design notes:
-- GET supports search, pagination, optional class filtering, scoped to schoolId.
-- POST validates input, checks for duplicate codes, and tracks creator.
-- Both routes return subjects with minimal `createdBy` info for UI.
+Design reasoning:
+- Centralized role-based access for create & fetch.
+- GET supports search, pagination, class filtering; POST ensures uniqueness and creator tracking.
+- Users see only subjects in their school; only ADMIN/PRINCIPAL can create.
+
+Structure:
+- GET: fetches paginated subjects with optional search/class filters.
+- POST: creates a new subject with validation and role enforcement.
+
+Implementation guidance:
+- Import and call in Next.js route.
+- Combine with `useSubjectStore` on frontend for pagination, search, and CRUD.
+
+Scalability insight:
+- Adding new roles or permissions requires only `roleInference` update.
+- Can easily extend GET filters (semester, department) without changing store logic.
 */

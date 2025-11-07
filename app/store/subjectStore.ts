@@ -1,209 +1,182 @@
-import { PrismaClient } from "@prisma/client";
-const prisma = new PrismaClient();
+// app/stores/subjectStore.ts
+// Purpose: Zustand store to manage Subjects with pagination, search, filters, and CRUD operations
+// Notes: Supports school-scoped subjects and can provide dropdown-ready lists
 
-async function main() {
-  // --- SCHOOL SETUP ---
-  const school = await prisma.school.upsert({
-    where: { name: "Knocka International School" },
-    update: {},
-    create: {
-      name: "Knocka International School",
-      address: "123 Education Avenue",
-      email: "info@knocka.edu",
-      phone: "+23300000000",
-    },
-  });
+import { create } from "zustand";
+import { Subject } from "@prisma/client";
+import { debounce } from "lodash";
 
-  // --- USERS ---
-  const adminUser = await prisma.user.upsert({
-    where: { email: "admin@knocka.edu" },
-    update: {},
-    create: {
-      email: "admin@knocka.edu",
-      name: "Admin User",
-      role: "ADMIN",
-      password: "securepassword", // Hash this in production!
-    },
-  });
-
-  const teacherUser = await prisma.user.upsert({
-    where: { email: "teacher@knocka.edu" },
-    update: {},
-    create: {
-      email: "teacher@knocka.edu",
-      name: "Jane Doe",
-      role: "TEACHER",
-      password: "securepassword",
-    },
-  });
-
-  const studentUser = await prisma.user.upsert({
-    where: { email: "student@knocka.edu" },
-    update: {},
-    create: {
-      email: "student@knocka.edu",
-      name: "John Student",
-      role: "STUDENT",
-      password: "securepassword",
-    },
-  });
-
-  // --- CLASSES ---
-  const classA = await prisma.class.upsert({
-    where: { name_schoolId: { name: "Class A", schoolId: school.id } },
-    update: {},
-    create: {
-      name: "Class A",
-      level: "Primary 6",
-      schoolId: school.id,
-      createdById: adminUser.id,
-    },
-  });
-
-  // --- SUBJECTS ---
-  const math = await prisma.subject.upsert({
-    where: { name_schoolId: { name: "Mathematics", schoolId: school.id } },
-    update: {},
-    create: {
-      name: "Mathematics",
-      schoolId: school.id,
-      createdById: teacherUser.id,
-    },
-  });
-
-  const english = await prisma.subject.upsert({
-    where: { name_schoolId: { name: "English", schoolId: school.id } },
-    update: {},
-    create: {
-      name: "English",
-      schoolId: school.id,
-      createdById: teacherUser.id,
-    },
-  });
-
-  // --- STAFF ---
-  const staffTeacher = await prisma.staff.upsert({
-    where: { userId: teacherUser.id },
-    update: {},
-    create: {
-      userId: teacherUser.id,
-      schoolId: school.id,
-      position: "TEACHER",
-      salary: 1500,
-      hireDate: new Date(),
-    },
-  });
-
-  // --- DEPARTMENT ---
-  const dept = await prisma.department.upsert({
-    where: { name_schoolId: { name: "Mathematics Dept", schoolId: school.id } },
-    update: {},
-    create: {
-      name: "Mathematics Dept",
-      schoolId: school.id,
-    },
-  });
-
-  // --- STUDENTS ---
-  const student = await prisma.student.upsert({
-    where: { userId: studentUser.id },
-    update: {},
-    create: {
-      userId: studentUser.id,
-      classId: classA.id,
-      schoolId: school.id,
-    },
-  });
-
-  // --- PARENTS ---
-  await prisma.parent.upsert({
-    where: { email: "parent@knocka.edu" },
-    update: {},
-    create: {
-      name: "Parent One",
-      email: "parent@knocka.edu",
-      phone: "+23399999999",
-      studentId: student.id,
-      schoolId: school.id,
-    },
-  });
-
-  // --- LIBRARY ---
-  const author = await prisma.author.upsert({
-    where: { name: "William Wordsworth" },
-    update: {},
-    create: {
-      name: "William Wordsworth",
-      schoolId: school.id,
-    },
-  });
-
-  const category = await prisma.category.upsert({
-    where: { name_schoolId: { name: "Poetry", schoolId: school.id } },
-    update: {},
-    create: {
-      name: "Poetry",
-      schoolId: school.id,
-    },
-  });
-
-  const book = await prisma.book.upsert({
-    where: { isbn: "ISBN12345" },
-    update: {},
-    create: {
-      title: "Collected Poems",
-      isbn: "ISBN12345",
-      authorId: author.id,
-      categoryId: category.id,
-      totalCopies: 5,
-      available: 5,
-      schoolId: school.id,
-    },
-  });
-
-  // --- FINANCE ---
-  await prisma.finance.create({
-    data: {
-      schoolId: school.id,
-      type: "INCOME",
-      amount: 5000,
-      description: "Initial seed funding",
-    },
-  });
-
-  // --- RESOURCES ---
-  const resource = await prisma.resource.upsert({
-    where: { name_schoolId: { name: "Projector", schoolId: school.id } },
-    update: {},
-    create: {
-      name: "Projector",
-      category: "Equipment",
-      unitPrice: 2000,
-      quantity: 5,
-      schoolId: school.id,
-    },
-  });
-
-  // --- TRANSACTIONS ---
-  await prisma.transaction.create({
-    data: {
-      studentId: student.id,
-      schoolId: school.id,
-      amount: 1200,
-      type: "INCOME",
-      feeType: "TUITION",
-      description: "Term 1 Tuition Fee",
-    },
-  });
-
-  console.log("✅ Database seeded successfully!");
+interface SubjectFilters {
+  classId?: string;
+  staffId?: string;
+  fromDate?: string; // ISO string
+  toDate?: string;   // ISO string
 }
 
-main()
-  .catch((e) => {
-    console.error(e);
-    process.exit(1);
-  })
-  .finally(async () => {
-    await prisma.$disconnect();
-  });
+interface SubjectStoreState {
+  subjects: Subject[];
+  total: number;
+  page: number;
+  limit: number;
+  search: string;
+  filters: SubjectFilters;
+  loading: boolean;
+  error: string | null;
+
+  fetchSubjects: (page?: number, search?: string, filters?: SubjectFilters) => Promise<void>;
+  createSubject: (data: { name: string; code?: string | null }) => Promise<Subject | void>;
+  updateSubject: (id: string, data: { name?: string; code?: string | null }) => Promise<Subject | void>;
+  deleteSubject: (id: string) => Promise<void>;
+  setSearch: (search: string) => void;
+  setPage: (page: number) => void;
+  setFilters: (filters: SubjectFilters) => void;
+  getDropdownList: () => { value: string; label: string }[];
+}
+
+export const useSubjectStore = create<SubjectStoreState>((set, get) => {
+  // Debounce to prevent excessive API calls
+  const debouncedFetch = debounce((page?: number, search?: string, filters?: SubjectFilters) => {
+    get().fetchSubjects(page, search, filters);
+  }, 300);
+
+  return {
+    subjects: [],
+    total: 0,
+    page: 1,
+    limit: 20,
+    search: "",
+    filters: {},
+    loading: false,
+    error: null,
+
+    // Fetch paginated subjects from API
+    fetchSubjects: async (page = get().page, search = get().search, filters = get().filters) => {
+      set({ loading: true, error: null });
+
+      try {
+        const params = new URLSearchParams({
+          page: String(page),
+          limit: String(get().limit),
+        });
+
+        if (search) params.append("search", search);
+        if (filters.classId) params.append("classId", filters.classId);
+        if (filters.staffId) params.append("staffId", filters.staffId);
+        if (filters.fromDate) params.append("fromDate", filters.fromDate);
+        if (filters.toDate) params.append("toDate", filters.toDate);
+
+        const res = await fetch(`/api/subjects?${params.toString()}`);
+        const text = await res.text();
+        const json = text ? JSON.parse(text) : { data: [], meta: { total: 0 } };
+        if (!res.ok) throw new Error(json.error || "Failed to fetch subjects");
+
+        set({ subjects: json.data, total: json.meta.total, page, search, filters });
+      } catch (err: any) {
+        set({ error: err.message || "Unknown error" });
+      } finally {
+        set({ loading: false });
+      }
+    },
+
+    // Create new subject
+    createSubject: async (data) => {
+      set({ loading: true, error: null });
+      try {
+        const res = await fetch("/api/subjects", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(data),
+        });
+        const text = await res.text();
+        const json = text ? JSON.parse(text) : null;
+        if (!res.ok) throw new Error(JSON.stringify(json?.error) || "Failed to create subject");
+
+        if (json) set((state) => ({ subjects: [json, ...state.subjects], total: state.total + 1 }));
+        return json;
+      } catch (err: any) {
+        set({ error: err.message });
+      } finally {
+        set({ loading: false });
+      }
+    },
+
+    // Update subject
+    updateSubject: async (id, data) => {
+      set({ loading: true, error: null });
+      try {
+        const res = await fetch(`/api/subjects/${id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(data),
+        });
+        const text = await res.text();
+        const json = text ? JSON.parse(text) : null;
+        if (!res.ok) throw new Error(JSON.stringify(json?.error) || "Failed to update subject");
+
+        if (json)
+          set((state) => ({
+            subjects: state.subjects.map((s) => (s.id === id ? json : s)),
+          }));
+        return json;
+      } catch (err: any) {
+        set({ error: err.message });
+      } finally {
+        set({ loading: false });
+      }
+    },
+
+    // Delete subject
+    deleteSubject: async (id) => {
+      set({ loading: true, error: null });
+      try {
+        const res = await fetch(`/api/subjects/${id}`, { method: "DELETE" });
+        const text = await res.text();
+        const json = text ? JSON.parse(text) : null;
+        if (!res.ok) throw new Error(json?.error || "Failed to delete subject");
+
+        set((state) => ({
+          subjects: state.subjects.filter((s) => s.id !== id),
+          total: state.total - 1,
+        }));
+      } catch (err: any) {
+        set({ error: err.message });
+      } finally {
+        set({ loading: false });
+      }
+    },
+
+    // Update search query
+    setSearch: (search) => {
+      set({ search, page: 1 });
+      debouncedFetch(1, search, get().filters);
+    },
+
+    // Update current page
+    setPage: (page: number) => {
+      set({ page });
+      debouncedFetch(page, get().search, get().filters);
+    },
+
+    // Update filters
+    setFilters: (filters: SubjectFilters) => {
+      set({ filters, page: 1 });
+      debouncedFetch(1, get().search, filters);
+    },
+
+    // Return subjects formatted for dropdowns
+    getDropdownList: () => get().subjects.map((s) => ({ value: s.id, label: s.name })),
+  };
+});
+
+/*
+Design reasoning:
+- Centralizes state for pagination, search, and filters.
+- Debounced fetch prevents rapid API calls.
+- `getDropdownList` enables dropdown selection in modals/forms.
+- School-scoped API ensures users only see subjects belonging to their school.
+
+Scalability:
+- Add more filters (department, semester) easily without changing UI logic.
+- Infinite scroll or appendable lists can be supported by modifying fetchSubjects.
+- Error handling centralized, reusable in components.
+*/

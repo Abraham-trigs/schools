@@ -1,204 +1,225 @@
 // prisma/seed.ts
-import { PrismaClient, Role, FinanceType, FeeType, AttendanceStatus } from "@prisma/client";
+import { PrismaClient, Role, FeeType, FinanceType, AttendanceStatus } from "@prisma/client";
 import bcrypt from "bcryptjs";
 
 const prisma = new PrismaClient();
 
-// Helpers
-const randInt = (min: number, max: number) => Math.floor(Math.random() * (max - min + 1)) + min;
-const randPick = <T>(arr: T[]) => arr[randInt(0, arr.length - 1)];
-const randomPastDate = () => new Date(Date.now() - randInt(0, 365) * 24 * 60 * 60 * 1000);
-const randomScore = (maxScore: number) => Math.floor(Math.random() * (maxScore * 0.5) + maxScore * 0.5);
+async function hashPassword(password: string) {
+  return bcrypt.hash(password, 10);
+}
 
 async function main() {
-  // ---------- SCHOOLS ----------
-  const schoolsData = [
-    { name: "Ford School Limited", domain: "fordschool.com", email: "fordschoolltd@fordschool.com", address: "123 Ford Rd" },
-    { name: "Sunrise Academy", domain: "sunriseacademy.com", email: "info@sunriseacademy.com", address: "1 Sunrise Ave" },
-    { name: "Greenfield High", domain: "greenfieldhigh.com", email: "contact@greenfieldhigh.com", address: "42 Greenfield St" },
-  ];
+  console.log("🌱 Seeding demo school database...");
 
-  const schools = [];
-  for (const s of schoolsData) {
-    const school = await prisma.school.upsert({
-      where: { name: s.name },
-      update: {},
-      create: s,
-    });
-    schools.push(school);
-  }
+  // ------------------- SCHOOL -------------------
+  const school = await prisma.school.upsert({
+    where: { domain: "fordschool.com" },
+    update: {},
+    create: { name: "Demo School", domain: "fordschool.com" },
+  });
 
-  // ---------- ADMIN / PRINCIPAL ACCOUNTS ----------
-  for (const school of schools) {
-    const admins = [
-      { name: "Super Admin", email: `admin@${school.domain}`, role: Role.ADMIN },
-      { name: "Principal", email: `principal@${school.domain}`, role: Role.PRINCIPAL },
-    ];
-    for (const a of admins) {
-      const password = await bcrypt.hash("admin123", 10);
-      await prisma.user.upsert({
-        where: { email: a.email },
-        update: {},
-        create: { ...a, password, schoolId: school.id },
-      });
-    }
-  }
+  // ------------------- USERS & STAFF -------------------
+  const admin = await prisma.user.upsert({
+    where: { email: "admin@fordschool.com" },
+    update: {},
+    create: {
+      name: "Admin User",
+      email: "admin@fordschool.com",
+      password: await hashPassword("admin123"),
+      role: Role.ADMIN,
+      schoolId: school.id,
+    },
+  });
 
-  // ---------- COMMON SUBJECTS ----------
-  const subjectsData = [
-    { name: "Mathematics", code: "MATH101" },
-    { name: "English", code: "ENG101" },
-    { name: "Science", code: "SCI101" },
-    { name: "History", code: "HIS101" },
-    { name: "Geography", code: "GEO101" },
-  ];
+  const teacherUser = await prisma.user.upsert({
+    where: { email: "teacher@fordschool.com" },
+    update: {},
+    create: {
+      name: "John Doe",
+      email: "teacher@fordschool.com",
+      password: await hashPassword("teacher123"),
+      role: Role.TEACHER,
+      schoolId: school.id,
+    },
+  });
 
-  const subjects = [];
-  for (const s of subjectsData) {
-    const sub = await prisma.subject.upsert({
-      where: { name: s.name },
-      update: {},
-      create: s,
-    });
-    subjects.push(sub);
-  }
+  const teacherStaff = await prisma.staff.upsert({
+    where: { userId: teacherUser.id },
+    update: {},
+    create: {
+      userId: teacherUser.id,
+      position: "Teacher",
+      schoolId: school.id,
+    },
+  });
 
-  // ---------- SEED PER SCHOOL ----------
-  for (const school of schools) {
-    // CLASSES
-    const classNames = ["Grade 1", "Grade 2", "Grade 3"];
-    const classes = [];
-    for (const cname of classNames) {
-      const cls = await prisma.class.upsert({
-        where: { name_schoolId: { name: cname, schoolId: school.id } },
-        update: {},
-        create: { name: cname, schoolId: school.id },
-      });
-      classes.push(cls);
+  // ------------------- DEPARTMENTS -------------------
+  const dept = await prisma.department.upsert({
+    where: { name_schoolId: { name: "Science Department", schoolId: school.id } },
+    update: {},
+    create: {
+      name: "Science Department",
+      schoolId: school.id,
+    },
+  });
 
-      // Connect subjects
-      await prisma.class.update({
-        where: { id: cls.id },
-        data: { subjects: { connect: subjects.map(s => ({ id: s.id })) } },
-      });
-    }
+  // ------------------- CLASSES -------------------
+  const classA = await prisma.class.upsert({
+    where: { name_schoolId: { name: "Class A", schoolId: school.id } },
+    update: {},
+    create: { name: "Class A", schoolId: school.id, createdById: teacherUser.id },
+  });
 
-    // TEACHERS & STAFF
-    const staffUsers = [];
-    for (let i = 1; i <= 5; i++) {
-      const password = await bcrypt.hash("teacher123", 10);
-      const userEmail = `teacher${i}@${school.domain}`;
+  const classB = await prisma.class.upsert({
+    where: { name_schoolId: { name: "Class B", schoolId: school.id } },
+    update: {},
+    create: { name: "Class B", schoolId: school.id, createdById: teacherUser.id },
+  });
+
+  // ------------------- SUBJECTS -------------------
+  const math = await prisma.subject.upsert({
+    where: { name_schoolId: { name: "Mathematics", schoolId: school.id } },
+    update: {},
+    create: { name: "Mathematics", schoolId: school.id, createdById: teacherUser.id },
+  });
+
+  const english = await prisma.subject.upsert({
+    where: { name_schoolId: { name: "English", schoolId: school.id } },
+    update: {},
+    create: { name: "English", schoolId: school.id, createdById: teacherUser.id },
+  });
+
+  await prisma.staff.update({
+    where: { id: teacherStaff.id },
+    data: { subjects: { connect: [{ id: math.id }, { id: english.id }] } },
+  });
+
+  // ------------------- STUDENTS & PARENTS -------------------
+  const studentUsers = await Promise.all(
+    ["Alice Smith", "Bob Johnson"].map(async (name, idx) => {
+      const email = `student${idx + 1}@fordschool.com`;
       const user = await prisma.user.upsert({
-        where: { email: userEmail },
+        where: { email },
         update: {},
-        create: {
-          name: `Teacher ${i} ${school.name}`,
-          email: userEmail,
-          password,
-          role: Role.TEACHER,
-          schoolId: school.id,
-        },
-      });
-      staffUsers.push(user);
-    }
-
-    for (const user of staffUsers) {
-      const cls = randPick(classes);
-      const sub = randPick(subjects);
-      await prisma.staff.upsert({
-        where: { userId: user.id },
-        update: {
-          classId: cls.id,
-          subjects: { connect: [{ id: sub.id }] },
-          position: "Teacher",
-          hireDate: randomPastDate(),
-          salary: randInt(2000, 5000),
-        },
-        create: {
-          userId: user.id,
-          classId: cls.id,
-          subjects: { connect: [{ id: sub.id }] },
-          position: "Teacher",
-          hireDate: randomPastDate(),
-          salary: randInt(2000, 5000),
-        },
-      });
-    }
-
-    // STUDENTS & PARENTS
-    const students = [];
-    for (let i = 1; i <= 20; i++) {
-      const password = await bcrypt.hash("student123", 10);
-      const studentEmail = `student${i}@${school.domain}`;
-      const user = await prisma.user.upsert({
-        where: { email: studentEmail },
-        update: {},
-        create: {
-          name: `Student ${i} ${school.name}`,
-          email: studentEmail,
-          password,
-          role: Role.STUDENT,
-          schoolId: school.id,
-        },
+        create: { name, email, password: await hashPassword("student123"), role: Role.STUDENT, schoolId: school.id },
       });
 
-      const cls = randPick(classes);
       const student = await prisma.student.upsert({
         where: { userId: user.id },
         update: {},
-        create: { userId: user.id, classId: cls.id, enrolledAt: randomPastDate() },
+        create: {
+          userId: user.id,
+          schoolId: school.id,
+          classId: idx % 2 === 0 ? classA.id : classB.id,
+        },
       });
 
+      // Parent upsert with compound unique key
       await prisma.parent.upsert({
-        where: { email: `parent${i}@${school.domain}` },
+        where: { email_schoolId: { email: `${name.split(" ")[0].toLowerCase()}@parent.fordschool.com`, schoolId: school.id } },
         update: {},
         create: {
           studentId: student.id,
-          name: `Parent ${i} ${school.name}`,
-          email: `parent${i}@${school.domain}`,
-          phone: `555-${randInt(1000, 9999)}`,
+          name: `${name.split(" ")[0]} Parent`,
+          email: `${name.split(" ")[0].toLowerCase()}@parent.fordschool.com`,
+          phone: `+2335000000${idx}`,
+          schoolId: school.id,
         },
       });
 
-      students.push(student);
-    }
+      return student;
+    })
+  );
 
-    // FINANCES
-    for (const student of students) {
-      await prisma.transaction.create({
-        data: {
-          studentId: student.id,
-          type: FinanceType.INCOME,
-          feeType: FeeType.TUITION,
-          amount: 500 + randInt(0, 500),
-          description: "Tuition payment",
-          date: randomPastDate(),
-        },
-      });
-    }
-
-    await prisma.finance.create({
-      data: {
-        schoolId: school.id,
-        type: FinanceType.EXPENSE,
-        amount: 2000,
-        description: "School maintenance",
-        date: randomPastDate(),
-      },
+  // ------------------- EXAMS -------------------
+  for (const student of studentUsers) {
+    await prisma.exam.upsert({
+      where: { title_schoolId: { title: `Math Midterm - ${student.userId}`, schoolId: school.id } },
+      update: {},
+      create: { title: `Math Midterm - ${student.userId}`, studentId: student.id, classId: student.classId!, subjectId: math.id, schoolId: school.id, maxScore: 100, score: Math.floor(Math.random() * 101) },
     });
-
-    // RESOURCES, PURCHASES, ACTIVITIES, BUSES, LIBRARY, ATTENDANCE, EXAMS
-    // ... (similar logic from previous seed but adapted with upserts and school domains)
   }
 
-  console.log("✅ Seed complete with idempotent staff, admin, Ford School included.");
+  // ------------------- ATTENDANCE -------------------
+  for (const student of studentUsers) {
+    await prisma.studentAttendance.upsert({
+      where: { studentId_date: { studentId: student.id, date: new Date() } },
+      update: {},
+      create: { studentId: student.id, status: AttendanceStatus.PRESENT, schoolId: school.id },
+    });
+  }
+
+  await prisma.staffAttendance.upsert({
+    where: { staffId_date: { staffId: teacherStaff.id, date: new Date() } },
+    update: {},
+    create: { staffId: teacherStaff.id, status: AttendanceStatus.PRESENT, schoolId: school.id },
+  });
+
+  // ------------------- FINANCES -------------------
+  await prisma.transaction.createMany({
+    data: studentUsers.map((s) => ({
+      studentId: s.id,
+      type: FinanceType.INCOME,
+      feeType: FeeType.TUITION,
+      amount: 500,
+      schoolId: school.id,
+    })),
+    skipDuplicates: true,
+  });
+
+  // ------------------- LIBRARY -------------------
+  const author = await prisma.author.upsert({
+    where: { name_schoolId: { name: "Jane Austen", schoolId: school.id } },
+    update: {},
+    create: { name: "Jane Austen", schoolId: school.id },
+  });
+
+  const category = await prisma.category.upsert({
+    where: { name_schoolId: { name: "Fiction", schoolId: school.id } },
+    update: {},
+    create: { name: "Fiction", schoolId: school.id },
+  });
+
+  const book = await prisma.book.upsert({
+    where: { isbn_schoolId: { isbn: "1234567890", schoolId: school.id } },
+    update: {},
+    create: { title: "Pride and Prejudice", isbn: "1234567890", authorId: author.id, categoryId: category.id, totalCopies: 5, available: 5, schoolId: school.id },
+  });
+
+  const librarianUser = await prisma.user.upsert({
+    where: { email: "librarian@fordschool.com" },
+    update: {},
+    create: { name: "Libby", email: "librarian@fordschool.com", password: await hashPassword("lib123"), role: Role.LIBRARIAN, schoolId: school.id },
+  });
+
+  await prisma.libraryStaff.upsert({
+    where: { userId: librarianUser.id },
+    update: {},
+    create: { userId: librarianUser.id, departmentId: dept.id, schoolId: school.id, position: "Librarian" },
+  });
+
+  // ------------------- RESOURCES & PURCHASES -------------------
+  const resource = await prisma.resource.upsert({
+    where: { name_schoolId: { name: "Chalk", schoolId: school.id } },
+    update: {},
+    create: { name: "Chalk", unitPrice: 2, quantity: 100, schoolId: school.id },
+  });
+
+  await prisma.purchase.createMany({
+    data: studentUsers.map((s) => ({ studentId: s.id, resourceId: resource.id, quantity: 5, totalCost: 10, schoolId: school.id })),
+    skipDuplicates: true,
+  });
+
+  // ------------------- BUS -------------------
+  await prisma.bus.upsert({
+    where: { plateNumber_schoolId: { plateNumber: "GHA-001", schoolId: school.id } },
+    update: {},
+    create: { plateNumber: "GHA-001", driverName: "Mr. Driver", capacity: 20, schoolId: school.id },
+  });
+
+  console.log("✅ Demo database seeded successfully!");
 }
 
 main()
-  .catch(e => {
-    console.error(e);
-    process.exit(1);
-  })
-  .finally(async () => {
-    await prisma.$disconnect();
-  });
+  .catch((e) => { console.error("❌ Seeding error:", e); process.exit(1); })
+  .finally(async () => { await prisma.$disconnect(); });

@@ -1,10 +1,4 @@
 // app/dashboard/staff/components/EditStaffModal.tsx
-// Purpose: Fully responsive Edit Staff modal with dynamic position, department, and class data.
-// - Position selection dynamically infers department (read-only) and class requirement.
-// - Classes are fetched from useSubjectStore.
-// - Optimistic UI updates via useStaffStore.
-// - Field-level validation and server error mapping.
-
 "use client";
 
 import React, { useEffect, useState } from "react";
@@ -12,16 +6,16 @@ import { useForm, SubmitHandler } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { Staff, useStaffStore } from "@/app/store/useStaffStore";
-import { useSubjectStore } from "@/app/store/subjectStore.ts";
+import { useClassesStore } from "@/app/store/useClassesStore";
+import { useSubjectStore } from "@/app/store/subjectStore";
 import {
   inferDepartmentFromPosition,
   requiresClass,
   positionRoleMap,
 } from "@/lib/api/constants/roleInference";
-import { FaLock, FaUnlock } from "react-icons/fa";
 import { toast } from "sonner";
+import { FaLock, FaUnlock } from "react-icons/fa";
 
-// ------------------------- Types -------------------------
 interface EditStaffModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -34,34 +28,33 @@ const staffSchema = z.object({
   password: z.string().optional(),
   position: z.string().min(1, "Position is required"),
   salary: z.coerce.number().optional(),
-  subject: z.string().optional(),
+  subject: z.string().nullable().optional(),
   classId: z.string().nullable().optional(),
 });
 
 type StaffFormValues = z.infer<typeof staffSchema>;
 
-// ------------------------- Component -------------------------
 export default function EditStaffModal({
   isOpen,
   onClose,
   staff,
 }: EditStaffModalProps) {
   const { updateStaff } = useStaffStore();
+  const classList = useClassesStore((s) => s.classes);
+  const fetchClasses = useClassesStore((s) => s.fetchClasses);
 
-  // ------------------------- Subject store -------------------------
-  const classList = useSubjectStore((s) => s.subjects);
-  const fetchSubjects = useSubjectStore((s) => s.fetchSubjects);
+  const { subjects, fetchSubjects } = useSubjectStore();
 
-  // ------------------------- Local state -------------------------
   const [isPasswordEditable, setIsPasswordEditable] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [loadingClasses, setLoadingClasses] = useState(false);
+  const [loadingSubjects, setLoadingSubjects] = useState(false);
 
   const {
     register,
     handleSubmit,
     reset,
     setValue,
-    setError,
     watch,
     formState: { errors },
   } = useForm<StaffFormValues>({
@@ -72,16 +65,16 @@ export default function EditStaffModal({
       password: "",
       position: "",
       salary: undefined,
-      subject: "",
+      subject: null,
       classId: null,
     },
   });
 
   const position = watch("position");
+  const selectedClassId = watch("classId");
   const requiresClassField = requiresClass(position);
-  const department = inferDepartmentFromPosition(position) ?? "";
 
-  // ------------------------- Prefill form on modal open -------------------------
+  // ----------------- Step 1: Prefill form when staff or modal opens -----------------
   useEffect(() => {
     if (!staff) return;
     reset({
@@ -90,71 +83,42 @@ export default function EditStaffModal({
       password: "",
       position: staff.position ?? "",
       salary: staff.salary ?? undefined,
-      subject: staff.subject ?? "",
+      subject: staff.subject ?? null,
       classId: staff.class?.id ?? null,
     });
     setIsPasswordEditable(false);
   }, [staff, reset]);
 
-  // ------------------------- Fetch classes if position requires class -------------------------
+  // ----------------- Step 2: Fetch classes if empty -----------------
   useEffect(() => {
     if (!requiresClassField) return;
+
     if (classList.length === 0) {
-      fetchSubjects({ page: 1, filters: {} }).catch(() =>
-        toast.error("Failed to load classes")
-      );
-    } else if (staff?.class?.id) {
-      setValue("classId", staff.class.id);
+      setLoadingClasses(true);
+      fetchClasses()
+        .catch(() => toast.error("Could not load classes"))
+        .finally(() => setLoadingClasses(false));
     }
-  }, [requiresClassField, classList.length, fetchSubjects, setValue, staff]);
+  }, [requiresClassField, classList.length, fetchClasses]);
+
+  // ----------------- Step 3: Fetch subjects based on selected class -----------------
+  useEffect(() => {
+    if (!selectedClassId) return;
+
+    setLoadingSubjects(true);
+    fetchSubjects(1, "", { classId: selectedClassId })
+      .then(() => {
+        if (staff?.subject) setValue("subject", staff.subject);
+      })
+      .catch(() => toast.error("Could not load subjects"))
+      .finally(() => setLoadingSubjects(false));
+  }, [selectedClassId, fetchSubjects, staff, setValue]);
 
   const positions = Object.keys(positionRoleMap);
 
-  // ------------------------- Helper: map server errors to fields -------------------------
-  function handleServerErrorPayload(errBody: any) {
-    const payload = errBody?.error ?? errBody;
-
-    if (typeof payload === "string") return toast.error(payload);
-
-    if (payload?.fieldErrors) {
-      Object.entries(payload.fieldErrors).forEach(([field, messages]) => {
-        if (Array.isArray(messages) && messages.length > 0) {
-          setError(field as any, {
-            type: "server",
-            message: messages.join(", "),
-          });
-        }
-      });
-      if (Array.isArray(payload.formErrors) && payload.formErrors.length > 0)
-        return toast.error(payload.formErrors.join(", "));
-      return;
-    }
-
-    if (Array.isArray(payload)) {
-      payload.forEach((item: any) => {
-        if (item?.path?.length && item.message)
-          setError(String(item.path[0]) as any, {
-            type: "server",
-            message: item.message,
-          });
-      });
-      return;
-    }
-
-    try {
-      const text =
-        typeof payload === "object" ? JSON.stringify(payload) : String(payload);
-      return toast.error(text.slice(0, 200));
-    } catch {
-      return toast.error("Failed to update staff");
-    }
-  }
-
-  // ------------------------- Submit handler -------------------------
   const onSubmit: SubmitHandler<StaffFormValues> = async (data) => {
     setSubmitting(true);
     try {
-      // Build minimal payload for changed fields
       const payload: Record<string, any> = {};
       if (data.name.trim() !== staff.user.name) payload.name = data.name.trim();
       if (data.email.trim() !== staff.user.email)
@@ -174,7 +138,7 @@ export default function EditStaffModal({
         return;
       }
 
-      // ------------------------- Optimistic UI update -------------------------
+      // Optimistic UI
       const selectedClass =
         classList.find((cls) => cls.id === data.classId) ?? null;
       updateStaff(staff.id, {
@@ -182,11 +146,10 @@ export default function EditStaffModal({
         position: data.position,
         class: selectedClass,
         salary: data.salary ?? null,
-        subject: data.subject ?? "",
-        department: { name: department },
+        subject: data.subject ?? null,
+        department: { name: inferDepartmentFromPosition(data.position) ?? "" },
       });
 
-      // ------------------------- API call -------------------------
       const res = await fetch(`/api/staff/${staff.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
@@ -194,21 +157,15 @@ export default function EditStaffModal({
       });
 
       if (!res.ok) {
-        let errBody: any = null;
-        try {
-          errBody = await res.json();
-        } catch {}
-        handleServerErrorPayload(errBody ?? { error: res.statusText });
+        const errBody = await res.json().catch(() => null);
+        toast.error(errBody?.error ?? res.statusText);
         throw new Error(errBody?.error ?? "Failed to update staff");
       }
 
-      await res.json();
       toast.success("Staff updated successfully");
       onClose();
     } catch (err: any) {
-      console.error("Update failed:", err);
-      if (!errors || Object.keys(errors).length === 0)
-        toast.error(err?.message ?? "Failed to update staff");
+      toast.error(err?.message ?? "Failed to update staff");
     } finally {
       setSubmitting(false);
     }
@@ -241,9 +198,6 @@ export default function EditStaffModal({
               className="w-full border rounded px-3 py-2 focus:ring-2 focus:ring-blue-400"
               aria-invalid={!!errors.name}
             />
-            {errors.name && (
-              <p className="text-red-600 text-sm">{errors.name.message}</p>
-            )}
           </div>
 
           {/* Email */}
@@ -255,9 +209,6 @@ export default function EditStaffModal({
               className="w-full border rounded px-3 py-2 focus:ring-2 focus:ring-blue-400"
               aria-invalid={!!errors.email}
             />
-            {errors.email && (
-              <p className="text-red-600 text-sm">{errors.email.message}</p>
-            )}
           </div>
 
           {/* Password */}
@@ -277,7 +228,6 @@ export default function EditStaffModal({
                 type="button"
                 onClick={() => setIsPasswordEditable((p) => !p)}
                 className="px-2 py-1 bg-gray-200 rounded hover:bg-gray-300"
-                title={isPasswordEditable ? "Lock password" : "Unlock to edit"}
               >
                 {isPasswordEditable ? <FaUnlock /> : <FaLock />}
               </button>
@@ -291,7 +241,7 @@ export default function EditStaffModal({
               {...register("position")}
               className="w-full border rounded px-3 py-2"
             >
-              <option value="">Select position</option>
+              <option value="">Select role</option>
               {positions.map((pos) => (
                 <option key={pos} value={pos}>
                   {pos.replace(/_/g, " ")}
@@ -304,11 +254,53 @@ export default function EditStaffModal({
           <div>
             <label className="block text-sm font-medium mb-1">Department</label>
             <input
-              value={department}
-              readOnly
+              value={inferDepartmentFromPosition(position) ?? ""}
+              disabled
               className="w-full border rounded px-3 py-2 bg-gray-100"
             />
           </div>
+
+          {/* Class */}
+          {requiresClassField && (
+            <div>
+              <label className="block text-sm font-medium mb-1">Class</label>
+              <select
+                {...register("classId")}
+                disabled={loadingClasses}
+                className="w-full border rounded px-3 py-2"
+              >
+                <option value="">
+                  {loadingClasses ? "Loading..." : "Select class"}
+                </option>
+                {classList.map((cls) => (
+                  <option key={cls.id} value={cls.id}>
+                    {cls.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          {/* Subject */}
+          {requiresClassField && (
+            <div>
+              <label className="block text-sm font-medium mb-1">Subject</label>
+              <select
+                {...register("subject")}
+                disabled={loadingSubjects || subjects.length === 0}
+                className="w-full border rounded px-3 py-2"
+              >
+                <option value="">
+                  {loadingSubjects ? "Loading subjects..." : "Select subject"}
+                </option>
+                {subjects.map((subj) => (
+                  <option key={subj.id} value={subj.name}>
+                    {subj.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
 
           {/* Salary */}
           <div>
@@ -319,38 +311,6 @@ export default function EditStaffModal({
               className="w-full border rounded px-3 py-2"
             />
           </div>
-
-          {/* Subject */}
-          <div>
-            <label className="block text-sm font-medium mb-1">Subject</label>
-            <input
-              {...register("subject")}
-              className="w-full border rounded px-3 py-2"
-            />
-          </div>
-
-          {/* Class (conditional) */}
-          {requiresClassField && (
-            <div>
-              <label className="block text-sm font-medium mb-1">Class</label>
-              <select
-                {...register("classId")}
-                className="w-full border rounded px-3 py-2"
-                disabled={classList.length === 0}
-              >
-                <option value="">
-                  {classList.length === 0
-                    ? "Loading classes..."
-                    : "Select class"}
-                </option>
-                {classList.map((cls) => (
-                  <option key={cls.id} value={cls.id}>
-                    {cls.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
 
           {/* Actions */}
           <div className="flex justify-end gap-2 mt-4">

@@ -1,5 +1,6 @@
 // app/api/subjects/route.ts
-// Purpose: List and create Subjects scoped to authenticated user's school, with pagination, search, and creator info.
+// Purpose: List and create Subjects scoped to authenticated user's school
+// Features: Pagination, search, optional class filtering, creator info
 
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
@@ -13,6 +14,7 @@ const subjectSchema = z.object({
   description: z.string().optional().nullable(),
 });
 
+// Normalize input to avoid inconsistencies
 const normalizeInput = (input: any) => ({
   name: input.name?.trim(),
   code: input.code?.trim().toUpperCase(),
@@ -29,27 +31,23 @@ export async function GET(req: NextRequest) {
     const page = Number(searchParams.get("page") || 1);
     const limit = Number(searchParams.get("limit") || 10);
     const search = searchParams.get("search")?.trim() || "";
+    const classId = searchParams.get("classId");
 
-    const where = {
-      schoolId: user.schoolId,
-      ...(search
-        ? {
-            OR: [
-              { name: { contains: search, mode: "insensitive" } },
-              { code: { contains: search, mode: "insensitive" } },
-            ],
-          }
-        : {}),
-    };
+    // Build dynamic where clause scoped to school
+    const where: any = { schoolId: user.schoolId };
+    if (search) {
+      where.OR = [
+        { name: { contains: search, mode: "insensitive" } },
+        { code: { contains: search, mode: "insensitive" } },
+      ];
+    }
+    if (classId) where.classId = classId;
 
+    // Transaction: fetch paginated subjects + total count atomically
     const [data, total] = await prisma.$transaction([
       prisma.subject.findMany({
         where,
-        include: {
-          createdBy: {
-            select: { id: true, name: true, role: true },
-          },
-        },
+        include: { createdBy: { select: { id: true, name: true, role: true } } },
         orderBy: { name: "asc" },
         skip: (page - 1) * limit,
         take: limit,
@@ -57,10 +55,7 @@ export async function GET(req: NextRequest) {
       prisma.subject.count({ where }),
     ]);
 
-    return NextResponse.json({
-      data,
-      meta: { total, page, limit },
-    });
+    return NextResponse.json({ data, meta: { total, page, limit } });
   } catch (err: any) {
     console.error(err);
     return NextResponse.json({ error: err.message || "Failed to fetch subjects" }, { status: 500 });
@@ -75,23 +70,24 @@ export async function POST(req: NextRequest) {
 
     const json = await req.json();
     const parsed = subjectSchema.safeParse(normalizeInput(json));
-    if (!parsed.success)
+    if (!parsed.success) {
       return NextResponse.json({ error: parsed.error.flatten().fieldErrors }, { status: 400 });
+    }
 
+    // Ensure unique code per school
     const exists = await prisma.subject.findFirst({
       where: { code: parsed.data.code, schoolId: user.schoolId },
     });
     if (exists) return NextResponse.json({ error: "Subject code already exists" }, { status: 409 });
 
+    // Create subject with creator tracking
     const subject = await prisma.subject.create({
       data: {
         ...parsed.data,
         schoolId: user.schoolId,
-        createdById: user.id, // ✅ Track creator
+        createdById: user.id,
       },
-      include: {
-        createdBy: { select: { id: true, name: true, role: true } },
-      },
+      include: { createdBy: { select: { id: true, name: true, role: true } } },
     });
 
     return NextResponse.json(subject, { status: 201 });
@@ -101,12 +97,9 @@ export async function POST(req: NextRequest) {
   }
 }
 
-/* 
-Design reasoning → Adds creator tracking and relational data for the UI table’s “Created By” column. Keeps response lightweight by selecting minimal fields. Schema-driven normalization ensures consistency.
-
-Structure → GET (list with pagination, search, include createdBy) + POST (validated creation with createdById assignment). Uses $transaction for atomic listing/counting.
-
-Implementation guidance → Requires `createdById` foreign key on Subject model linking to Staff or User table. Ensure cookieUser returns user.id and schoolId.
-
-Scalability insight → Extend `include` to bring related classes or departments without changing response shape. Can paginate or sort by createdBy fields easily.
+/*
+Design notes:
+- GET supports search, pagination, optional class filtering, scoped to schoolId.
+- POST validates input, checks for duplicate codes, and tracks creator.
+- Both routes return subjects with minimal `createdBy` info for UI.
 */

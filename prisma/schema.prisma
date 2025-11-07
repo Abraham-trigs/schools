@@ -35,21 +35,30 @@ enum Role {
 }
 
 model School {
-  id        String   @id @default(cuid())
-  name      String   @unique
-  domain    String   @unique // default domain for generating emails
-  email     String   @unique // school's main contact email
-  address   String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  users      User[]
-  classes    Class[]
-  buses      Bus[]
-  finances   Finance[]
-  activities Activity[]
-  resources  Resource[]
-  Book       Book[]
+  id                 String              @id @default(cuid())
+  name               String
+  students           Student[]
+  staffs             Staff[]
+  domain             String              @unique
+  departments        Department[]
+  buses              Bus[]
+  subjects           Subject[]
+  exams              Exam[]
+  studentAttendances StudentAttendance[]
+  staffAttendances   StaffAttendance[]
+  parents            Parent[]
+  authors            Author[]
+  categories         Category[]
+  borrows            Borrow[]
+  libraryStaffs      LibraryStaff[]
+  finances           Finance[]
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+  User               User[]
+  Class              Class[]
+  Book               Book[]
+  Resource           Resource[]
+  Activity           Activity[]
 }
 
 model User {
@@ -63,11 +72,15 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  student      Student?
-  staff        Staff?
-  libraryStaff LibraryStaff?
+  student        Student?
+  staff          Staff?
+  libraryStaff   LibraryStaff?
+  createdClasses Class[]
 
-  createdSubjects Subject[]
+  busId String?
+  bus   Bus?    @relation(fields: [busId], references: [id])
+
+  createdSubjects Subject[] @relation("UserCreatedSubjects")
 
   @@map("users")
 }
@@ -80,6 +93,11 @@ model Student {
   class      Class?   @relation(fields: [classId], references: [id])
   enrolledAt DateTime @default(now())
   updatedAt  DateTime @updatedAt
+  schoolId   String
+  school     School   @relation(fields: [schoolId], references: [id])
+
+  busId String?
+  bus   Bus?    @relation(fields: [busId], references: [id])
 
   exams        Exam[]
   parents      Parent[]
@@ -87,9 +105,9 @@ model Student {
   purchases    Purchase[]
   attendances  StudentAttendance[]
   borrows      Borrow[]
+  subjects     Subject[]           @relation("StudentSubjects")
 
-  subjects Subject[] @relation("StudentSubjects") // many-to-many with Subject
-
+  @@unique([userId, schoolId])
   @@map("students")
 }
 
@@ -97,15 +115,17 @@ model Student {
 // Purpose: Class model with fully mirrored relations to Students, Staff, Exams, and Subjects
 
 model Class {
-  id       String @id @default(cuid())
-  name     String
-  schoolId String
-  school   School @relation(fields: [schoolId], references: [id])
+  id          String  @id @default(cuid())
+  name        String
+  schoolId    String
+  school      School  @relation(fields: [schoolId], references: [id])
+  createdById String?
+  createdBy   User?   @relation(fields: [createdById], references: [id])
 
   students Student[]
   staff    Staff[]
   exams    Exam[]
-  subjects Subject[] @relation("ClassSubjects") // many-to-many with Subject
+  subjects Subject[] @relation("ClassSubjects")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -119,19 +139,21 @@ model Class {
 
 model Subject {
   id        String   @id @default(cuid())
-  name      String   @unique
-  code      String?  @unique
+  name      String
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  schoolId  String
+  school    School   @relation(fields: [schoolId], references: [id])
 
   createdById String?
-  createdBy   User?   @relation(fields: [createdById], references: [id])
+  createdBy   User?   @relation("UserCreatedSubjects", fields: [createdById], references: [id])
 
   exams    Exam[]
   staff    Staff[]   @relation("StaffSubjects")
-  students Student[] @relation("StudentSubjects") // many-to-many with Student
-  classes  Class[]   @relation("ClassSubjects") // many-to-many with Class
+  students Student[] @relation("StudentSubjects")
+  classes  Class[]   @relation("ClassSubjects")
 
+  @@unique([name, schoolId])
   @@map("subjects")
 }
 
@@ -140,12 +162,15 @@ model Subject {
 
 model Exam {
   id        String   @id @default(cuid())
+  title     String // name of the exam (e.g., "Midterm", "Final Exam")
   studentId String?
   student   Student? @relation(fields: [studentId], references: [id], onDelete: Cascade)
   classId   String?
   class     Class?   @relation(fields: [classId], references: [id])
   subjectId String
   subject   Subject  @relation(fields: [subjectId], references: [id])
+  schoolId  String
+  school    School   @relation(fields: [schoolId], references: [id])
 
   score     Float?
   maxScore  Float?
@@ -153,6 +178,7 @@ model Exam {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  @@unique([title, schoolId])
   @@map("exams")
 }
 
@@ -160,20 +186,23 @@ model Exam {
 // Purpose: Staff model linking Users, Classes, Departments, Subjects, and Attendances
 
 model Staff {
-  id           String      @id @default(cuid())
-  userId       String      @unique
-  user         User        @relation(fields: [userId], references: [id])
-  classId      String?
-  class        Class?      @relation(fields: [classId], references: [id])
-  position     String?
-  departmentId String?
-  department   Department? @relation(fields: [departmentId], references: [id])
-  salary       Float?
-  hireDate     DateTime?
-  createdAt    DateTime    @default(now())
-  updatedAt    DateTime    @updatedAt
+  id               String      @id @default(cuid())
+  userId           String      @unique
+  user             User        @relation(fields: [userId], references: [id])
+  classId          String?
+  class            Class?      @relation(fields: [classId], references: [id])
+  departmentId     String?
+  department       Department? @relation(fields: [departmentId], references: [id])
+  position         String?
+  salary           Float?
+  hireDate         DateTime?
+  schoolId         String
+  school           School      @relation(fields: [schoolId], references: [id])
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
+  financesRecorded Finance[]
 
-  subjects    Subject[]         @relation("StaffSubjects") // many-to-many optional
+  subjects    Subject[]         @relation("StaffSubjects")
   attendances StaffAttendance[]
 
   @@map("staff")
@@ -184,10 +213,14 @@ model Staff {
 
 model Department {
   id           String         @id @default(cuid())
-  name         String         @unique
+  name         String
   staff        Staff[]
   libraryStaff LibraryStaff[]
+  schoolId     String
+  school       School         @relation(fields: [schoolId], references: [id])
+  finances     Finance[]
 
+  @@unique([name, schoolId])
   @@map("departments")
 }
 
@@ -212,6 +245,8 @@ model StudentAttendance {
   remarks   String?
   createdAt DateTime         @default(now())
   updatedAt DateTime         @updatedAt
+  schoolId  String
+  school    School           @relation(fields: [schoolId], references: [id])
 
   @@unique([studentId, date], name: "studentId_date")
   @@map("student_attendances")
@@ -231,7 +266,10 @@ model StaffAttendance {
   remarks   String?
   createdAt DateTime         @default(now())
   updatedAt DateTime         @updatedAt
+  schoolId  String
+  school    School           @relation(fields: [schoolId], references: [id])
 
+  @@unique([staffId, date], name: "staffId_date")
   @@map("staff_attendances")
 }
 
@@ -243,11 +281,14 @@ model Parent {
   studentId String
   student   Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
   name      String
-  email     String   @unique
+  email     String
   phone     String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  schoolId  String
+  school    School   @relation(fields: [schoolId], references: [id])
 
+  @@unique([email, schoolId])
   @@map("parents")
 }
 
@@ -260,7 +301,10 @@ model Author {
   books     Book[]
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  schoolId  String
+  school    School   @relation(fields: [schoolId], references: [id])
 
+  @@unique([name, schoolId])
   @@map("authors")
 }
 
@@ -270,7 +314,7 @@ model Author {
 model Book {
   id          String    @id @default(cuid())
   title       String
-  isbn        String    @unique
+  isbn        String
   authorId    String
   author      Author    @relation(fields: [authorId], references: [id])
   categoryId  String?
@@ -284,6 +328,7 @@ model Book {
 
   borrows Borrow[]
 
+  @@unique([isbn, schoolId])
   @@map("books")
 }
 
@@ -293,7 +338,10 @@ model Category {
   books     Book[]
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  schoolId  String
+  school    School   @relation(fields: [schoolId], references: [id])
 
+  @@unique([name, schoolId])
   @@map("categories")
 }
 
@@ -312,8 +360,10 @@ model Borrow {
   fine       Float     @default(0)
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @updatedAt
+  schoolId   String
+  school     School    @relation(fields: [schoolId], references: [id])
 
-  @@unique([bookId, studentId, borrowedAt], name: "unique_borrow")
+  @@unique([bookId, studentId, borrowedAt, schoolId], name: "unique_borrow_per_school")
   @@map("borrows")
 }
 
@@ -330,6 +380,8 @@ model LibraryStaff {
   hireDate     DateTime?
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
+  schoolId     String
+  school       School     @relation(fields: [schoolId], references: [id])
 
   @@map("library_staff")
 }
@@ -339,6 +391,8 @@ model LibraryStaff {
 enum FinanceType {
   INCOME
   EXPENSE
+  TRANSFER
+  INVESTMENT
 }
 
 enum FeeType {
@@ -359,13 +413,14 @@ enum FeeType {
 
 model Transaction {
   id          String      @id @default(cuid())
-  studentId   String
-  student     Student     @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  studentId   String?
+  student     Student?    @relation(fields: [studentId], references: [id], onDelete: Cascade)
   type        FinanceType @default(INCOME)
   feeType     FeeType?
   amount      Float
   date        DateTime    @default(now())
   description String?
+  schoolId    String
   createdAt   DateTime    @default(now())
   updatedAt   DateTime    @updatedAt
 
@@ -376,15 +431,19 @@ model Transaction {
 // Purpose: Finance model tracking school income/expenses with full relation to School
 
 model Finance {
-  id          String      @id @default(cuid())
-  schoolId    String
-  school      School      @relation(fields: [schoolId], references: [id])
-  type        FinanceType @default(INCOME)
-  amount      Float
-  description String?
-  date        DateTime    @default(now())
-  createdAt   DateTime    @default(now())
-  updatedAt   DateTime    @updatedAt
+  id           String      @id @default(cuid())
+  schoolId     String
+  school       School      @relation(fields: [schoolId], references: [id])
+  type         FinanceType @default(INCOME)
+  amount       Float
+  description  String?
+  departmentId String?
+  department   Department? @relation(fields: [departmentId], references: [id])
+  recordedById String?
+  recordedBy   Staff?      @relation(fields: [recordedById], references: [id])
+  date         DateTime    @default(now())
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
 
   @@map("finances")
 }
@@ -398,15 +457,30 @@ model Resource {
   category  String?
   unitPrice Float
   quantity  Int      @default(1)
+  threshold Int? // optional: trigger low-stock alerts
   schoolId  String
   school    School   @relation(fields: [schoolId], references: [id])
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  purchases Purchase[]
+  purchases    Purchase[]
+  transactions ResourceTransaction[] // for usage & stock updates
 
   @@unique([name, schoolId])
   @@map("resources")
+}
+
+model ResourceTransaction {
+  id         String   @id @default(cuid())
+  resourceId String
+  resource   Resource @relation(fields: [resourceId], references: [id])
+  type       String // e.g., "PURCHASE", "USAGE", "ADJUSTMENT"
+  quantity   Int
+  date       DateTime @default(now())
+  remarks    String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  schoolId   String
 }
 
 // prisma/schema.prisma
@@ -414,8 +488,8 @@ model Resource {
 
 model Purchase {
   id         String   @id @default(cuid())
-  studentId  String
-  student    Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  studentId  String?
+  student    Student? @relation(fields: [studentId], references: [id], onDelete: Cascade)
   resourceId String
   resource   Resource @relation(fields: [resourceId], references: [id])
   quantity   Int      @default(1)
@@ -423,7 +497,9 @@ model Purchase {
   date       DateTime @default(now())
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
+  schoolId   String
 
+  @@unique([studentId, resourceId, date], name: "unique_purchase_per_day")
   @@map("purchases")
 }
 
@@ -433,14 +509,18 @@ model Purchase {
 // Purpose: Activity model representing school events or tasks linked to a School
 
 model Activity {
-  id          String   @id @default(cuid())
+  id          String    @id @default(cuid())
   title       String
   description String?
+  location    String?
+  startDate   DateTime? // optional start date/time
+  endDate     DateTime? // optional end date/time
   schoolId    String
-  school      School   @relation(fields: [schoolId], references: [id])
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  school      School    @relation(fields: [schoolId], references: [id])
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
+  @@unique([title, schoolId])
   @@map("activities")
 }
 
@@ -451,11 +531,17 @@ model Bus {
   id          String   @id @default(cuid())
   schoolId    String
   school      School   @relation(fields: [schoolId], references: [id])
-  plateNumber String   @unique
+  plateNumber String
   driverName  String
   capacity    Int
+  route       String? // optional, e.g. "Downtown - Campus Loop"
+  status      String? // optional, e.g. "Active", "Under Maintenance"
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
+  students Student[] // optional future: students assigned to the bus
+  User     User[]
+
+  @@unique([plateNumber, schoolId])
   @@map("buses")
 }

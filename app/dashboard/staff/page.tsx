@@ -1,5 +1,5 @@
 // app/staff/page.tsx
-// Purpose: Responsive Staff Management page with Add/Edit/Delete modals and click-to-view staff detail.
+// Purpose: Responsive Staff Management page with Add/Edit/Delete modals, search, pagination, and click-to-view staff detail
 
 "use client";
 
@@ -29,6 +29,7 @@ export default function StaffPage() {
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [selectedToDelete, setSelectedToDelete] = useState<Staff | null>(null);
 
+  // --- Fetch staff on page/search change ---
   useEffect(() => {
     fetchStaffDebounced(page, search);
   }, [page, search, fetchStaffDebounced]);
@@ -42,7 +43,7 @@ export default function StaffPage() {
 
   const closeEdit = () => {
     setIsEditOpen(false);
-    setTimeout(() => setSelectedStaff(null), 120);
+    setTimeout(() => setSelectedStaff(null), 120); // Prevent flicker when closing modal
   };
 
   // --- Delete Handlers ---
@@ -51,14 +52,10 @@ export default function StaffPage() {
     setSelectedToDelete(staff);
   };
 
-  const closeDelete = () => {
-    setSelectedToDelete(null);
-  };
+  const closeDelete = () => setSelectedToDelete(null);
 
   // --- Navigation ---
-  const goToDetail = (id: string) => {
-    router.push(`/dashboard/staff/${id}`);
-  };
+  const goToDetail = (id: string) => router.push(`/dashboard/staff/${id}`);
 
   return (
     <div className="p-4 md:p-6 mt-7">

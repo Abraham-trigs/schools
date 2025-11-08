@@ -142,8 +142,8 @@ export default function ClassesPage() {
                     {/* Students button */}
                     <button
                       onClick={() => {
-                        setCurrentClass({ id: cls.id, name: cls.name });
-                        setStudentsOpen(true);
+                        setCurrentClass({ id: cls.id, name: cls.name }); // stores the selected class context
+                        setStudentsOpen(true); // opens modal
                       }}
                       className="px-3 py-1 bg-ford-primary text-white rounded hover:bg-ford-secondary"
                     >
@@ -209,11 +209,10 @@ export default function ClassesPage() {
 
       {studentsOpen && currentClass && (
         <StudentsModal
-          classId={currentClass.id}
-          className={currentClass.name}
           isOpen={studentsOpen}
           onClose={() => setStudentsOpen(false)}
-          onSuccess={() => fetchClasses()}
+          classId={currentClass.id} // passes class context directly
+          className={currentClass.name}
         />
       )}
 

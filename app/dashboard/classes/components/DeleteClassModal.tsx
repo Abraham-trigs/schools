@@ -1,17 +1,15 @@
 // app/dashboard/classes/components/DeleteClassModal.tsx
-// Purpose: Modal for confirming and deleting a class, fully controlled, showing class name in warning, with UX-friendly loading and error handling
-
 "use client";
 
-import { useState } from "react";
+import { useState, useRef, useEffect, KeyboardEvent } from "react";
 import { useClassesStore } from "@/app/store/useClassesStore.ts";
 
 interface DeleteClassModalProps {
-  id: string; // ID of the class to delete
-  className: string; // Name of the class to display in warning
-  isOpen: boolean; // Modal open state
-  onClose: () => void; // Function to close modal
-  onSuccess?: () => void; // Optional callback after successful deletion
+  id: string;
+  className: string;
+  isOpen: boolean;
+  onClose: () => void;
+  onSuccess?: () => void;
 }
 
 export default function DeleteClassModal({
@@ -22,50 +20,107 @@ export default function DeleteClassModal({
   onSuccess,
 }: DeleteClassModalProps) {
   const deleteClass = useClassesStore((state) => state.deleteClass);
-  const [loading, setLoading] = useState(false); // Track async delete
-  const [error, setError] = useState<string | null>(null); // Track error messages
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const cancelButtonRef = useRef<HTMLButtonElement>(null);
+  const deleteButtonRef = useRef<HTMLButtonElement>(null);
+
+  // ---------------------------
+  // Focus cancel button when modal opens
+  // ---------------------------
+  useEffect(() => {
+    if (isOpen) {
+      setTimeout(() => cancelButtonRef.current?.focus(), 0);
+    }
+  }, [isOpen]);
 
   // ---------------------------
   // Delete handler
   // ---------------------------
   const handleDelete = async () => {
     setLoading(true);
-    setError(null); // reset previous errors
+    setError(null);
     try {
-      const success = await deleteClass(id); // call store action
+      const success = await deleteClass(id);
       if (success) {
-        onSuccess?.(); // refresh parent list/chart
-        onClose(); // close modal
+        onSuccess?.();
+        onClose();
       } else {
-        setError("Failed to delete class. Try again."); // UX-friendly error
+        setError("Failed to delete class. Try again.");
       }
     } catch (err: any) {
       console.error("Delete failed:", err.message || err);
-      setError("An unexpected error occurred."); // fallback error
+      setError("An unexpected error occurred.");
     } finally {
       setLoading(false);
     }
   };
 
   // ---------------------------
-  // Do not render modal if closed
+  // Keyboard & focus trap handler
   // ---------------------------
+  const handleKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+    if (loading) return;
+
+    if (e.key === "Escape") {
+      e.preventDefault();
+      onClose();
+    } else if (e.key === "Enter") {
+      if (
+        document.activeElement === cancelButtonRef.current ||
+        document.activeElement === deleteButtonRef.current
+      ) {
+        handleDelete();
+      }
+    } else if (e.key === "Tab") {
+      const focusable = [
+        cancelButtonRef.current,
+        deleteButtonRef.current,
+      ].filter(Boolean) as HTMLElement[];
+      if (focusable.length < 2) return;
+
+      const currentIndex = focusable.indexOf(
+        document.activeElement as HTMLElement
+      );
+      if (e.shiftKey) {
+        if (currentIndex === 0) {
+          e.preventDefault();
+          focusable[focusable.length - 1].focus();
+        }
+      } else {
+        if (currentIndex === focusable.length - 1) {
+          e.preventDefault();
+          focusable[0].focus();
+        }
+      }
+    }
+  };
+
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+    <div
+      role="dialog"
+      aria-modal="true"
+      onKeyDown={handleKeyDown}
+      className="fixed inset-0 bg-black/40 flex items-center justify-center z-50"
+    >
       <div className="bg-white rounded-lg shadow-lg w-full max-w-sm p-6 animate-fade-in">
-        <h2 className="text-lg font-semibold mb-4">Confirm Delete</h2>
-        {/* Display class name in warning */}
-        <p className="mb-6 text-gray-700">
-          Are you sure you want to delete the class <strong>{className}</strong>
-          ? This action cannot be undone.
+        <h2 className="text-lg font-semibold mb-4 text-center">
+          Confirm Delete
+        </h2>
+
+        <p className="mb-6 text-gray-700 text-center">
+          Delete <strong className="text-red-600">{className}</strong>? <br />
+          Action cannot be <span className="text-red-600">undone.</span>
         </p>
 
         {error && <p className="text-red-600 text-sm mb-4">{error}</p>}
 
         <div className="flex justify-end gap-2">
           <button
+            ref={cancelButtonRef}
             onClick={onClose}
             className="px-4 py-2 rounded bg-gray-200 hover:bg-gray-300"
             disabled={loading}
@@ -73,6 +128,7 @@ export default function DeleteClassModal({
             Cancel
           </button>
           <button
+            ref={deleteButtonRef}
             onClick={handleDelete}
             className="px-4 py-2 rounded bg-red-600 text-white hover:bg-red-700 disabled:opacity-50"
             disabled={loading}
@@ -84,39 +140,3 @@ export default function DeleteClassModal({
     </div>
   );
 }
-
-/* Integration notes:
-- Parent page should now pass className:
-  <DeleteClassModal
-    id={currentClass.id}
-    className={currentClass.name} // display in warning
-    isOpen={deleteOpen}
-    onClose={() => setDeleteOpen(false)}
-    onSuccess={() => fetchClasses()} // refresh class list
-  />
-- Store: deleteClass(id) must exist and return boolean for success.
-*/
-
-/* Design reasoning:
-- Shows selected class name in warning for clear UX.
-- Loading state prevents double submission.
-- Error state surfaces backend/store issues.
-- Minimal props keep modal decoupled and reusable.
-*/
-
-/* Structure:
-- Props: id, className, isOpen, onClose, onSuccess
-- State: loading (async), error (string)
-- Handlers: handleDelete
-- Returns: modal JSX with confirmation text including className, error feedback, and buttons
-*/
-
-/* Implementation guidance:
-- Always pass className from parent for context.
-- Keep deleteClass returning boolean to drive modal flow.
-- Buttons reflect async state for UX clarity.
-*/
-
-/* Scalability insight:
-- Easily extend to handle batch deletes or undo functionality by adding props and updating handleDelete.
-*/

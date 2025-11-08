@@ -1,18 +1,18 @@
 // app/dashboard/classes/components/EditClassModal.tsx
-// Purpose: Modal for editing a class name, fully controlled, optimized for UX, and using correct notification calls
+// Purpose: Modal for editing a class name with keyboard support, focus trap, and full accessibility
 
 "use client";
 
-import { useState, useEffect } from "react";
-import { notify } from "@/lib/helpers/notifications"; // import the object with .success/.error/.info
+import { useState, useEffect, useRef, KeyboardEvent } from "react";
+import { notify } from "@/lib/helpers/notifications";
 import { useClassesStore } from "@/app/store/useClassesStore";
 
 interface EditClassModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSuccess: () => void;
-  classId: string; // ID of the class to edit
-  className: string; // Current class name to prefill input
+  classId: string;
+  className: string;
 }
 
 export default function EditClassModal({
@@ -23,73 +23,124 @@ export default function EditClassModal({
   className,
 }: EditClassModalProps) {
   const { updateClass } = useClassesStore();
-  const [name, setName] = useState(""); // Controlled input state
-  const [saving, setSaving] = useState(false); // Tracks save/loading state
+  const [name, setName] = useState("");
+  const [saving, setSaving] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const firstButtonRef = useRef<HTMLButtonElement>(null);
+  const lastButtonRef = useRef<HTMLButtonElement>(null);
 
   // ---------------------------
-  // Prefill input whenever modal opens or className changes
+  // Prefill input and autofocus
   // ---------------------------
   useEffect(() => {
-    if (isOpen) setName(className || "");
+    if (isOpen) {
+      setName(className || "");
+      setTimeout(() => inputRef.current?.focus(), 0);
+    }
   }, [isOpen, className]);
 
   // ---------------------------
-  // Handle save/update action
+  // Save handler
   // ---------------------------
   const handleSave = async () => {
     const trimmedName = name.trim();
     if (!trimmedName) {
-      notify.error("Class name cannot be empty"); // Correct usage of notifications object
+      notify.error("Class name cannot be empty");
       return;
     }
 
     setSaving(true);
     try {
-      const result = await updateClass(classId, trimmedName); // Call store update
+      const result = await updateClass(classId, trimmedName);
       if (result.success) {
-        notify.success("Class updated successfully"); // Success toast
-        onSuccess(); // Parent can refresh list/chart
+        notify.success("Class updated successfully");
+        onSuccess();
         onClose();
       } else {
-        notify.error(result.error || "Failed to update class"); // Show API error
+        notify.error(result.error || "Failed to update class");
       }
     } catch (err: any) {
-      notify.error(err?.message || "Unexpected error"); // Catch-all error handling
+      notify.error(err?.message || "Unexpected error");
     } finally {
-      setSaving(false); // Re-enable input/buttons
+      setSaving(false);
     }
   };
 
   // ---------------------------
-  // Do not render modal if closed
+  // Keyboard & focus trap handler
   // ---------------------------
+  const handleKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+    if (saving) return;
+
+    if (e.key === "Escape") {
+      e.preventDefault();
+      onClose();
+    } else if (e.key === "Enter") {
+      if ((e.target as HTMLElement).tagName === "INPUT") {
+        e.preventDefault();
+        handleSave();
+      }
+    } else if (e.key === "Tab") {
+      // Focus trap
+      const focusable = [
+        inputRef.current,
+        firstButtonRef.current,
+        lastButtonRef.current,
+      ].filter(Boolean) as HTMLElement[];
+      if (focusable.length < 2) return;
+
+      const currentIndex = focusable.indexOf(
+        document.activeElement as HTMLElement
+      );
+      if (e.shiftKey) {
+        if (currentIndex === 0) {
+          e.preventDefault();
+          focusable[focusable.length - 1].focus();
+        }
+      } else {
+        if (currentIndex === focusable.length - 1) {
+          e.preventDefault();
+          focusable[0].focus();
+        }
+      }
+    }
+  };
+
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+    <div
+      role="dialog"
+      aria-modal="true"
+      onKeyDown={handleKeyDown}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+    >
       <div className="bg-white p-6 rounded-md w-full max-w-md">
         <h2 className="text-lg font-bold mb-4">Edit Class: {className}</h2>
 
         <div className="mb-4">
           <label className="block text-sm font-medium mb-1">Class Name</label>
           <input
+            ref={inputRef}
             type="text"
             value={name}
             onChange={(e) => setName(e.target.value)}
             className="w-full px-3 py-2 border rounded-md focus:outline-none focus:ring focus:ring-ford-primary"
-            disabled={saving} // disable input during save
+            disabled={saving}
           />
         </div>
 
         <div className="flex justify-end gap-2">
           <button
+            ref={firstButtonRef}
             onClick={onClose}
             className="px-4 py-2 rounded border hover:bg-gray-100"
-            disabled={saving} // prevent closing mid-save if needed
+            disabled={saving}
           >
             Cancel
           </button>
           <button
+            ref={lastButtonRef}
             onClick={handleSave}
             className={`px-4 py-2 rounded text-white ${
               saving
@@ -106,39 +157,13 @@ export default function EditClassModal({
   );
 }
 
-/* Integration notes:
-- Use modal like:
-  <EditClassModal
-    isOpen={editOpen}
-    onClose={() => setEditOpen(false)}
-    onSuccess={fetchClasses} // refresh list/chart
-    classId={selectedClass.id}
-    className={selectedClass.name}
-  />
-- Ensure store provides updateClass(id, name) returning { success: boolean, error?: string }.
-*/
-
-/* Design reasoning:
-- Calls notify.success/error correctly using the notifications object.
-- Controlled input prevents blank/uncontrolled state.
-- Save state disables input/buttons, providing UX feedback.
-- Minimal props (id + name) reduce coupling to full store object.
-*/
-
-/* Structure:
-- Props: isOpen, onClose, onSuccess, classId, className
-- State: name (input), saving (button state)
-- Handlers: handleSave
-- Returns: modal JSX with controlled input, buttons, and save feedback
-*/
-
-/* Implementation guidance:
-- Parent page only needs to pass ID and current name.
-- onSuccess triggers list/chart refresh externally.
-- Keep store updateClass method returning success/error object.
+/* Integration & UX notes:
+- Keyboard: Esc closes, Enter saves from input, Tab cycles within modal.
+- Autofocus input improves accessibility.
+- Focus trap ensures users cannot tab outside modal unintentionally.
 */
 
 /* Scalability insight:
-- Can extend to edit multiple fields by adding props and updating handleSave.
-- Reusable pattern for other single-entity updates by replacing label/API call.
+- Easy to extend to multi-input forms: just add refs to focusable elements array.
+- Fully accessible modal pattern reusable for other edit forms.
 */

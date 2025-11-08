@@ -1,128 +1,126 @@
-// app/api/staff/route.ts
-// Purpose: Handle listing and creating staff with full pagination, search, filtering, auth, role & department inference, and secure password handling.
+// app/api/staff/[id]/route.ts
+// Purpose: Item route for Staff - get, update (PATCH), delete with transaction-safe updates and role checks
+
+"use server";
 
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { z } from "zod";
 import { cookieUser } from "@/lib/cookieUser";
-import { inferRoleFromPosition, inferDepartmentFromPosition, requiresClass } from "@/lib/api/constants/roleInference";
+import { Role } from "@prisma/client";
+import { z } from "zod";
 import bcrypt from "bcryptjs";
 
-// ------------------------- Types -------------------------
-interface StaffCreateRequest {
-  name: string;
-  email: string;
-  position?: string | null;
-  classId?: string | null;
-  salary?: number | null;
-  subject?: string | null;
-  hireDate?: Date | null;
-  password: string;
-}
-
-// ------------------------- Schemas -------------------------
-const staffSchema = z.object({
-  name: z.string().min(1, "Name is required"),
-  email: z.string().email("Invalid email"),
-  position: z.string().optional().nullable(),
-  classId: z.string().optional().nullable(),
-  salary: z.preprocess((val) => (val === "" ? null : Number(val)), z.number().nullable().optional()),
-  subject: z.string().optional().nullable(),
-  hireDate: z.preprocess((val) => (val ? new Date(val as string) : null), z.date().nullable().optional()),
-  password: z.string().min(6, "Password must be at least 6 characters"),
+const staffUpdateSchema = z.object({
+  name: z.string().optional(),
+  email: z.string().email().optional(),
+  password: z.string().min(6).optional(),
+  position: z.string().optional(),
+  departmentId: z.string().nullable().optional(),
+  classId: z.string().nullable().optional(),
+  salary: z.preprocess(
+    (val) => (val === "" ? null : Number(val)),
+    z.number().nullable().optional()
+  ),
+  hireDate: z.preprocess(
+    (val) => (val ? new Date(val as string) : undefined),
+    z.date().optional()
+  ),
+  subjects: z.array(z.string()).optional(),
 });
 
-// ------------------------- GET: List staff -------------------------
-export async function GET(req: NextRequest) {
-  const user = await cookieUser(req);
-  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
-  const url = new URL(req.url);
-  const search = url.searchParams.get("search") || "";
-  const role = url.searchParams.get("role");
-  const departmentId = url.searchParams.get("departmentId");
-  const page = Number(url.searchParams.get("page") || 1);
-  const perPage = Number(url.searchParams.get("perPage") || 10);
-
-  const where: any = {};
-  if (search) {
-    where.OR = [
-      { user: { name: { contains: search, mode: "insensitive" } } },
-      { user: { email: { contains: search, mode: "insensitive" } } },
-    ];
-  }
-  if (role) where.role = role;
-  if (departmentId) where.departmentId = departmentId;
-
-  const [staffList, total] = await prisma.$transaction([
-    prisma.staff.findMany({
-      where,
-      include: { user: true, class: true, department: true },
-      skip: (page - 1) * perPage,
-      take: perPage,
-      orderBy: { createdAt: "desc" },
-    }),
-    prisma.staff.count({ where }),
-  ]);
-
-  const totalPages = Math.ceil(total / perPage);
-  return NextResponse.json({ staffList, total, page, perPage, totalPages });
+// ------------------------- Helper -------------------------
+async function resolveParams({ params }: { params: { id: string } }) {
+  return params.id;
 }
 
-// ------------------------- POST: Create staff -------------------------
-export async function POST(req: NextRequest) {
+// ------------------------- GET staff by id -------------------------
+export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
+  const staffId = await resolveParams({ params });
   const user = await cookieUser(req);
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  try {
-    const body: StaffCreateRequest = await req.json();
-    const data = staffSchema.parse(body);
+  const staff = await prisma.staff.findFirst({
+    where: { id: staffId, schoolId: user.schoolId },
+    include: { user: true, class: true, department: true, subjects: true, attendances: true, financesRecorded: true },
+  });
 
-    const role = inferRoleFromPosition(data.position);
-    const departmentName = inferDepartmentFromPosition(data.position);
-    const department = departmentName
-      ? await prisma.department.findUnique({ where: { name: departmentName } })
-      : null;
+  if (!staff) return NextResponse.json({ error: "Staff not found" }, { status: 404 });
+  return NextResponse.json({ data: staff });
+}
+
+// ------------------------- PATCH: update staff -------------------------
+export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
+  const staffId = await resolveParams({ params });
+  const user = await cookieUser(req);
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (![Role.ADMIN, Role.PRINCIPAL, Role.HR].includes(user.role))
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+
+  try {
+    const body = await req.json();
+    const data = staffUpdateSchema.parse(body);
 
     return await prisma.$transaction(async (tx) => {
-      const existingUser = await tx.user.findUnique({ where: { email: data.email } });
-      if (existingUser) return NextResponse.json({ error: "User with email exists" }, { status: 400 });
+      const staff = await tx.staff.findUnique({ where: { id: staffId } });
+      if (!staff) throw new Error("Staff not found during update");
 
-      const hashedPassword = await bcrypt.hash(data.password, 10);
+      const userData: any = {};
+      if (data.name) userData.name = data.name;
+      if (data.email) userData.email = data.email;
+      if (data.password) userData.password = await bcrypt.hash(data.password, 10);
 
-      const newUser = await tx.user.create({
-        data: { name: data.name, email: data.email, password: hashedPassword, role, schoolId: user.schoolId },
+      const staffData: any = {};
+      if (data.position) staffData.position = data.position;
+      if ("departmentId" in data) staffData.departmentId = data.departmentId;
+      if ("classId" in data) staffData.classId = data.classId;
+      if ("salary" in data) staffData.salary = data.salary;
+      if ("hireDate" in data) staffData.hireDate = data.hireDate;
+
+      if ("subjects" in data) {
+        staffData.subjects = {
+          set: data.subjects.map((id) => ({ id })),
+        };
+      }
+
+      if (Object.keys(userData).length > 0) {
+        await tx.user.update({ where: { id: staff.userId }, data: userData });
+      }
+
+      const updatedStaff = await tx.staff.update({
+        where: { id: staffId },
+        data: staffData,
+        include: { user: true, class: true, department: true, subjects: true, attendances: true, financesRecorded: true },
       });
 
-      const newStaff = await tx.staff.create({
-        data: {
-          userId: newUser.id,
-          position: data.position || "Teacher",
-          departmentId: department?.id ?? null,
-          classId: requiresClass(data.position) ? data.classId : null,
-          salary: data.salary ?? null,
-          subject: data.subject ?? null,
-          hireDate: data.hireDate ?? null,
-        },
-        include: { user: true, class: true, department: true },
-      });
-
-      return NextResponse.json(newStaff, { status: 201 });
+      return NextResponse.json({ data: updatedStaff });
     });
   } catch (err: any) {
     if (err instanceof z.ZodError) return NextResponse.json({ error: err.flatten() }, { status: 400 });
-    return NextResponse.json({ error: err.message }, { status: 500 });
+    console.error("PATCH /api/staff/[id] failed:", err);
+    return NextResponse.json({ error: err.message || "Unexpected error" }, { status: 500 });
   }
 }
 
-/* Design reasoning:
-- GET supports search, pagination, and filtering by role/department for efficient staff management.
-- POST securely hashes passwords and infers role/department to maintain consistency.
-Structure:
-- GET: list staff
-- POST: create new staff
-Implementation guidance:
-- Use in a staff management page with live search and paginated table.
-Scalability insight:
-- Additional filters (class, hireDate, etc.) can be added without changing core structure.
+// ------------------------- DELETE staff -------------------------
+export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
+  const staffId = await resolveParams({ params });
+  const user = await cookieUser(req);
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (![Role.ADMIN, Role.PRINCIPAL].includes(user.role))
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+
+  const deleted = await prisma.staff.deleteMany({
+    where: { id: staffId, schoolId: user.schoolId },
+  });
+
+  if (deleted.count === 0)
+    return NextResponse.json({ error: "Staff not found" }, { status: 404 });
+
+  return NextResponse.json({ data: "Staff deleted" });
+}
+
+/* Design reasoning → Transactional updates with user + staff consistency, role-based access, subjects delta update, and safe deletion.
+Structure → GET, PATCH, DELETE with Prisma transactions and relational includes.
+Implementation guidance → Only authorized roles can update/delete; PATCH normalizes inputs and handles subjects.
+Scalability insight → Extend PATCH schema for extra fields, handle more relations, or add batch operations without breaking current API.
 */

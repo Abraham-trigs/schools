@@ -1,9 +1,8 @@
 // app/staff/page.tsx
 // Purpose: Responsive Staff Management page with Add/Edit/Delete modals, search, pagination, and click-to-view staff detail
-
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import AddStaffModal from "./components/AddStaffModal";
 import EditStaffModal from "./components/EditStaffModal";
@@ -18,16 +17,22 @@ export default function StaffPage() {
     search,
     loading,
     error,
+    total,
     setPage,
     setSearch,
     fetchStaffDebounced,
     totalPages,
+    selectedStaff,
+    setSelectedStaff,
+    fetchStaffById,
   } = useStaffStore();
 
-  // --- Local UI states ---
-  const [selectedStaff, setSelectedStaff] = useState<Staff | null>(null);
-  const [isEditOpen, setIsEditOpen] = useState(false);
-  const [selectedToDelete, setSelectedToDelete] = useState<Staff | null>(null);
+  // --- Local UI states for modals ---
+  const [isEditOpen, setIsEditOpen] = React.useState(false);
+  const [selectedToDelete, setSelectedToDelete] = React.useState<Staff | null>(
+    null
+  );
+  const [isAddOpen, setIsAddOpen] = React.useState(false);
 
   // --- Fetch staff on page/search change ---
   useEffect(() => {
@@ -43,7 +48,7 @@ export default function StaffPage() {
 
   const closeEdit = () => {
     setIsEditOpen(false);
-    setTimeout(() => setSelectedStaff(null), 120); // Prevent flicker when closing modal
+    setTimeout(() => setSelectedStaff(null), 120); // prevent flicker
   };
 
   // --- Delete Handlers ---
@@ -51,18 +56,25 @@ export default function StaffPage() {
     e.stopPropagation();
     setSelectedToDelete(staff);
   };
-
   const closeDelete = () => setSelectedToDelete(null);
 
-  // --- Navigation ---
-  const goToDetail = (id: string) => router.push(`/dashboard/staff/${id}`);
+  // --- Row click: prefetch detail + navigate ---
+  const goToDetail = async (id: string) => {
+    await fetchStaffById(id); // prefetch for instant detail page
+    router.push(`/dashboard/staff/${id}`);
+  };
 
   return (
     <div className="p-4 md:p-6 mt-7">
       {/* Header */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-2 sm:gap-0">
         <h1 className="text-2xl font-bold">Staff Management</h1>
-        <AddStaffModalButton />
+        <button
+          onClick={() => setIsAddOpen(true)}
+          className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-400"
+        >
+          Add Staff
+        </button>
       </div>
 
       {/* Search */}
@@ -202,7 +214,7 @@ export default function StaffPage() {
         </div>
       )}
 
-      {/* Edit Modal */}
+      {/* Modals */}
       {isEditOpen && selectedStaff && (
         <EditStaffModal
           isOpen={isEditOpen}
@@ -210,8 +222,6 @@ export default function StaffPage() {
           staff={selectedStaff}
         />
       )}
-
-      {/* Delete Modal */}
       {selectedToDelete && (
         <ConfirmDeleteModal
           isOpen={!!selectedToDelete}
@@ -219,22 +229,27 @@ export default function StaffPage() {
           onClose={closeDelete}
         />
       )}
+      <AddStaffModal isOpen={isAddOpen} onClose={() => setIsAddOpen(false)} />
     </div>
   );
 }
 
-// --- AddStaffModalButton ---
-function AddStaffModalButton() {
-  const [isOpen, setIsOpen] = useState(false);
-  return (
-    <>
-      <button
-        onClick={() => setIsOpen(true)}
-        className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-400"
-      >
-        Add Staff
-      </button>
-      <AddStaffModal isOpen={isOpen} onClose={() => setIsOpen(false)} />
-    </>
-  );
-}
+/* 
+Design reasoning:
+- Fully centralized state for selectedStaff ensures modal edits always reflect store state.
+- Debounced search and cached staffList prevent unnecessary API calls and improve UX.
+- Prefetch detail on row click ensures smooth navigation to detail page.
+
+Structure:
+- Main page divided into header, search, table/list view, pagination, modals.
+- Local modal states only handle open/close; all staff data lives in store.
+
+Implementation guidance:
+- Hook search input to setSearch for debounce + fetch.
+- Hook table and mobile cards to goToDetail and modals for edit/delete.
+- Pagination uses store's totalPages() for consistency.
+
+Scalability insight:
+- Adding filters (department, hireDate), batch operations, or more modals can be done without touching core page logic.
+- Centralized store state ensures all components remain in sync automatically.
+*/

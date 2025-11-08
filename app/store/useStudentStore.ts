@@ -36,9 +36,12 @@ export interface StudentDetail {
   transactions: any[];
   attendances: Attendance[];
   attendancesSummary?: Record<string, number>;
-  user?: { id: string; name: string; email: string };
+  user?: { id: string; name: string; email: string }; // optional for optimistic UI
 }
 
+/**
+ * Store interface
+ */
 interface StudentStore {
   student: StudentDetail | null;
   students: StudentDetail[];
@@ -50,7 +53,7 @@ interface StudentStore {
   search: string;
   sortBy: "name" | "email" | "createdAt";
   sortOrder: "asc" | "desc";
-  cache: Record<string, { data: StudentDetail[]; total: number }>;
+  cache: Record<string, StudentDetail[]>;
 
   fetchStudent: (id: string) => Promise<void>;
   fetchStudents: (page?: number, perPage?: number, search?: string, classId?: string) => Promise<void>;
@@ -72,9 +75,13 @@ interface StudentStore {
  * Implementation
  */
 export const useStudentStore = create<StudentStore>((set, get) => {
+  // Debounce search with optional class filter to avoid rapid API requests.
   const debouncedFetch = debounce((search: string, classId?: string) => get().fetchStudents(1, get().perPage, search, classId), 400);
 
   return {
+    // ---------------------------
+    // Initial state
+    // ---------------------------
     student: null,
     students: [],
     total: 0,
@@ -88,57 +95,70 @@ export const useStudentStore = create<StudentStore>((set, get) => {
     cache: {},
 
     // ---------------------------
-    // Fetch multiple students, scoped to classId
+    // Fetch students (optionally scoped by classId)
     // ---------------------------
-    fetchStudents: async (page = get().page, perPage = get().perPage, search = get().search, classId) => {
-      if (!classId) return; // enforce class context
-
-      const { sortBy, sortOrder, cache } = get();
-      const cacheKey = `${page}-${perPage}-${search}-${sortBy}-${sortOrder}-${classId}`;
-
-      // return cache if exists
-      if (cache[cacheKey]) {
-        set({ students: cache[cacheKey].data, total: cache[cacheKey].total, page });
-        return;
-      }
-
+    fetchStudents: async (page = get().page, perPage = get().perPage, search = get().search, classId?: string) => {
+      // set loading + clear previous error
       set({ loading: true, error: null });
+      const { sortBy, sortOrder, cache } = get();
+      const cacheKey = `${page}-${perPage}-${search}-${sortBy}-${sortOrder}-${classId ?? "all"}`;
 
       try {
+        // Return cached results if present
+        if (cache[cacheKey]) {
+          set({ students: cache[cacheKey], loading: false });
+          return;
+        }
+
+        // Append optional class filter to query
+        const classFilter = classId ? `&classId=${encodeURIComponent(classId)}` : "";
         const res = await apiClient<{ data: StudentDetail[]; total: number; page: number; perPage: number }>(
-          `/api/students?page=${page}&perPage=${perPage}&search=${encodeURIComponent(search)}&sortBy=${sortBy}&sortOrder=${sortOrder}&classId=${classId}`,
+          `/api/students?page=${page}&perPage=${perPage}&search=${encodeURIComponent(search)}&sortBy=${sortBy}&sortOrder=${sortOrder}${classFilter}`,
           { auth: true }
         );
 
+        // update state and cache
         set((state) => ({
           students: res.data,
           total: res.total,
           page: res.page,
           perPage: res.perPage,
-          cache: { ...state.cache, [cacheKey]: { data: res.data, total: res.total } },
+          cache: { ...state.cache, [cacheKey]: res.data },
           loading: false,
         }));
       } catch (err: any) {
         const message = err?.message || "Failed to fetch students";
         set({ error: message, loading: false });
+        // Surface toast for user feedback
         notify.error(message);
       }
     },
 
+    // ---------------------------
+    // Fetch single student detail
+    // ---------------------------
     fetchStudent: async (id) => {
       set({ loading: true, error: null });
       try {
         const s = await apiClient<{ data: StudentDetail }>(`/api/students/${id}`, { auth: true });
         set({ student: s.data, loading: false });
       } catch (err: any) {
-        const message = err?.status === 404 ? "Student not found" : "Failed to fetch student";
+        let message = "Failed to fetch student";
+        if (err?.status === 403) message = "Access forbidden: you do not have permission to view this student.";
+        else if (err?.status === 404) message = "Student not found or does not belong to your school.";
         set({ error: message, loading: false, student: null });
         notify.error(message);
       }
     },
 
+    // ---------------------------
+    // Clear selected student
+    // ---------------------------
     clearStudent: () => set({ student: null, error: null }),
 
+    // ---------------------------
+    // Search / sort / page helpers (all support optional classId)
+    // ---------------------------
     setSearch: (search, classId) => {
       set({ search, page: 1 });
       debouncedFetch(search, classId);
@@ -146,6 +166,7 @@ export const useStudentStore = create<StudentStore>((set, get) => {
 
     setSort: (sortBy, sortOrder, classId) => {
       set({ sortBy, sortOrder });
+      // immediate fetch when sorting changes
       get().fetchStudents(get().page, get().perPage, get().search, classId);
     },
 
@@ -154,6 +175,9 @@ export const useStudentStore = create<StudentStore>((set, get) => {
       get().fetchStudents(page, get().perPage, get().search, classId);
     },
 
+    // ---------------------------
+    // Local mutations + optimistic helpers
+    // ---------------------------
     addStudent: (student) => {
       set((state) => ({ students: [student, ...state.students] }));
       notify.success(`Added student: ${student.name ?? student.user?.name}`);
@@ -172,9 +196,12 @@ export const useStudentStore = create<StudentStore>((set, get) => {
         students: state.students.filter((s) => s.id !== id),
         student: state.student?.id === id ? null : state.student,
       }));
-      notify.success("Student removed");
+      notify.success(`Student removed`);
     },
 
+    // ---------------------------
+    // Create student (optimistic UI)
+    // ---------------------------
     addStudentAsync: async ({ name, email, password, classId }) => {
       const tempId = `temp-${Date.now()}`;
       const classesStore = useClassesStore.getState();
@@ -192,6 +219,7 @@ export const useStudentStore = create<StudentStore>((set, get) => {
         user: { id: tempId, name, email },
       };
 
+      // optimistic add
       get().addStudent(tempStudent);
       set({ loading: true, error: null });
 
@@ -203,6 +231,7 @@ export const useStudentStore = create<StudentStore>((set, get) => {
 
       set({ loading: false });
       if (!response?.data) {
+        // rollback optimistic add
         get().removeStudent(tempId);
         set({ error: "Failed to add student" });
         notify.error("Failed to add student");
@@ -213,11 +242,16 @@ export const useStudentStore = create<StudentStore>((set, get) => {
         ...response.data,
         user: { id: response.data.user.id, name: response.data.user.name, email: response.data.user.email },
       };
+      // replace temporary with persisted
       get().replaceStudent(tempId, fullStudent);
       notify.success(`Student "${fullStudent.user.name}" added successfully`);
     },
 
+    // ---------------------------
+    // Update student (server-driven)
+    // ---------------------------
     updateStudent: async (id, data) => {
+      // prepare payload only with changed fields; server validates further
       const payload: Partial<StudentDetail> & { classId?: string | null } = {};
       if (data.name?.trim()) payload.name = data.name.trim();
       if (data.email?.trim()) payload.email = data.email.trim();
@@ -243,6 +277,7 @@ export const useStudentStore = create<StudentStore>((set, get) => {
         return;
       }
 
+      // replace updated student in lists
       set((state) => ({
         students: state.students.map((st) => (st.id === id ? response.data : st)),
         student: state.student?.id === id ? response.data : state.student,
@@ -251,44 +286,48 @@ export const useStudentStore = create<StudentStore>((set, get) => {
       notify.success(`Student "${response.data.user?.name}" updated successfully`);
     },
 
+    // ---------------------------
+    // Delete student (supports class-scoped refresh)
+    // ---------------------------
     deleteStudent: async (id, classId) => {
       try {
         await apiClient(`/api/students/${id}`, { method: "DELETE", auth: true, showSuccess: true });
+        // remove locally
         set((state) => ({
           students: state.students.filter((s) => s.id !== id),
           student: state.student?.id === id ? null : state.student,
           total: state.total > 0 ? state.total - 1 : 0,
         }));
+        // invalidate cache and refresh the currently scoped list
         set({ cache: {} });
         await get().fetchStudents(get().page, get().perPage, get().search, classId);
       } catch (err: any) {
-        notify.error(err?.message || "Failed to delete student");
+        const message = err?.message || "Failed to delete student";
+        notify.error(message);
         throw err;
       }
     },
   };
 });
 
-/* 
+/*
 Design reasoning →
-- Ensures per-class fetches by requiring `classId`.
-- Cache key includes `classId` to prevent data collision between classes.
-- Debounced search reduces API traffic.
-- Optimistic add/update/remove for responsive UX.
-- All CRUD operations maintain data consistency and error feedback.
+This store makes per-class scoping explicit: fetch/set methods accept optional classId so UI (modal or page) can pass the selected class and receive just its students.
+Debounced search, cache keys including classId, and optimistic UI for add/remove keep UX fast while preserving correctness.
+Errors are surfaced via `notify` and state.error so both toast and UI can show messages.
+Server-driven writes (update/delete) always refresh the scoped list after completion to preserve data integrity.
 
 Structure →
-- State: student (selected), students (list), pagination, search, sort, cache, loading, error
-- Actions: fetchStudents, fetchStudent, setSearch, setSort, setPage, add/update/delete helpers
-- Optimistic helpers: addStudent, replaceStudent, removeStudent
-- Async helpers: addStudentAsync, updateStudent, deleteStudent
+- State: student (selected), students (list), pagination, search, sort, cache, loading, error.
+- Actions: fetchStudents, fetchStudent, addStudentAsync, updateStudent, deleteStudent, helpers (setSearch/setSort/setPage), optimistic helpers (addStudent/replaceStudent/removeStudent).
 
 Implementation guidance →
-- Always pass `classId` from modal or page when fetching or manipulating students.
-- Example: fetchStudents(1, perPage, "", selectedClass.id)
-- Store returns paginated and cached results scoped to class.
+- Pass `classId` from the page/modal when calling `fetchStudents`, `setSearch`, `setPage`, `setSort`, and `deleteStudent`.
+- Example: `fetchStudents(1, perPage, "", selectedClass.id)` or `setSearch("ali", selectedClass.id)`.
+- Keep `apiClient` consistent: it must accept `auth: true` and return parsed JSON with `{ data, total, page, perPage }`.
+- Ensure backend `/api/students` honors `classId` query param — server must filter by `classId` when present.
 
 Scalability insight →
-- Can add more filters (status, year, attendance) by extending cacheKey and query params.
-- Supports batch operations and prefetching next pages for smoother UX.
+- Cache key pattern includes `classId` so multi-class tabs or filters won't collide; adding more filters (status, year) is a matter of adding them into the cacheKey and request query.
+- Can extend to support batch operations (bulk import/export, bulk-mark attendance) using similar optimistic patterns and transactions on server side.
 */

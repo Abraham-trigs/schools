@@ -1,11 +1,16 @@
-import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/db";
-import { cookieUser } from "@/lib/cookieUser";
-import { Role, AttendanceStatus } from "@prisma/client";
-import bcrypt from "bcryptjs";
-import { z } from "zod";
+// app/api/students/[id]/route.ts
+// Purpose: Item route for Student - get, update (PATCH), delete
 
-// --- Validation schema for PATCH ---
+"use server";
+
+import { NextRequest, NextResponse } from "next/server";
+import { prisma } from "@/lib/prisma";
+import { cookieUser } from "@/lib/cookieUser";
+import { Role } from "@prisma/client";
+import { z } from "zod";
+import bcrypt from "bcryptjs";
+
+// ------------------------- PATCH schema -------------------------
 const studentUpdateSchema = z.object({
   name: z.string().optional(),
   email: z.string().email().optional(),
@@ -13,21 +18,19 @@ const studentUpdateSchema = z.object({
   classId: z.string().nullable().optional(),
 });
 
-// --- Helper to get studentId safely ---
-async function resolveParams(context: { params: any }) {
-  const params = await context.params;
+// ------------------------- Helper -------------------------
+async function resolveParams({ params }: { params: { id: string } }) {
   return params.id;
 }
 
-// --- GET student ---
-export async function GET(req: NextRequest, context: { params: any }) {
-  const studentId = await resolveParams(context);
-
-  const user = await cookieUser();
+// ------------------------- GET: single student -------------------------
+export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
+  const studentId = await resolveParams({ params });
+  const user = await cookieUser(req);
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const student = await prisma.student.findFirst({
-    where: { id: studentId, user: { schoolId: user.schoolId } },
+    where: { id: studentId, schoolId: user.schoolId },
     include: {
       user: true,
       class: true,
@@ -38,82 +41,82 @@ export async function GET(req: NextRequest, context: { params: any }) {
     },
   });
 
-  if (!student)
-    return NextResponse.json({ error: "Student not found or access forbidden" }, { status: 404 });
-
-  const summary = {
-    total: student.attendances.length,
-    present: student.attendances.filter(a => a.status === AttendanceStatus.PRESENT).length,
-    absent: student.attendances.filter(a => a.status === AttendanceStatus.ABSENT).length,
-    late: student.attendances.filter(a => a.status === AttendanceStatus.LATE).length,
-    excused: student.attendances.filter(a => a.status === AttendanceStatus.EXCUSED).length,
-  };
-
-  return NextResponse.json({ data: student, attendancesSummary: summary });
+  if (!student) return NextResponse.json({ error: "Student not found" }, { status: 404 });
+  return NextResponse.json({ data: student });
 }
 
-// --- PATCH student ---
-export async function PATCH(req: NextRequest, context: { params: any }) {
-  const studentId = await resolveParams(context);
-
-  const user = await cookieUser();
+// ------------------------- PATCH: update student -------------------------
+export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
+  const studentId = await resolveParams({ params });
+  const user = await cookieUser(req);
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   if (![Role.ADMIN, Role.PRINCIPAL, Role.TEACHER].includes(user.role))
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
-  const body = await req.json();
-  const data = studentUpdateSchema.parse(body);
+  try {
+    const body = await req.json();
+    const data = studentUpdateSchema.parse(body);
 
-  const updateData: any = {};
-  if ("classId" in data) updateData.classId = data.classId;
+    const userData: any = {};
+    if (data.name) userData.name = data.name;
+    if (data.email) userData.email = data.email;
+    if (data.password) userData.password = await bcrypt.hash(data.password, 10);
 
-  const userData: any = {};
-  if (data.name) userData.name = data.name;
-  if (data.email) userData.email = data.email;
-  if (data.password) userData.password = await bcrypt.hash(data.password, 10);
+    const updateData: any = {};
+    if ("classId" in data) updateData.classId = data.classId;
 
-  const updated = await prisma.$transaction(async (tx) => {
-    const studentCount = await tx.student.count({
-      where: { id: studentId, user: { schoolId: user.schoolId } },
-    });
-    if (studentCount === 0) throw new Error("Student not found or access forbidden");
+    const updatedStudent = await prisma.$transaction(async (tx) => {
+      if (Object.keys(updateData).length > 0)
+        await tx.student.update({ where: { id: studentId }, data: updateData });
 
-    if (Object.keys(updateData).length > 0)
-      await tx.student.update({
+      if (Object.keys(userData).length > 0) {
+        const student = await tx.student.findUnique({ where: { id: studentId } });
+        if (!student) throw new Error("Student not found during update");
+        await tx.user.update({ where: { id: student.userId }, data: userData });
+      }
+
+      return tx.student.findUnique({
         where: { id: studentId },
-        data: updateData,
+        include: {
+          user: true,
+          class: true,
+          parents: true,
+          exams: true,
+          transactions: true,
+          attendances: true,
+        },
       });
-
-    if (Object.keys(userData).length > 0) {
-      const student = await tx.student.findUnique({ where: { id: studentId } });
-      if (!student) throw new Error("Student not found during update");
-      await tx.user.update({ where: { id: student.userId }, data: userData });
-    }
-
-    return tx.student.findUnique({
-      where: { id: studentId },
-      include: { user: true, class: true, parents: true, exams: true, transactions: true, attendances: true },
     });
-  });
 
-  return NextResponse.json({ data: updated });
+    return NextResponse.json({ data: updatedStudent });
+  } catch (err: any) {
+    if (err instanceof z.ZodError) return NextResponse.json({ error: err.flatten() }, { status: 400 });
+    return NextResponse.json({ error: err.message || "Unexpected error" }, { status: 500 });
+  }
 }
 
-// --- DELETE student ---
-export async function DELETE(req: NextRequest, context: { params: any }) {
-  const studentId = await resolveParams(context);
-
-  const user = await cookieUser();
+// ------------------------- DELETE student -------------------------
+export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
+  const studentId = await resolveParams({ params });
+  const user = await cookieUser(req);
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   if (![Role.ADMIN, Role.PRINCIPAL].includes(user.role))
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   const deleted = await prisma.student.deleteMany({
-    where: { id: studentId, user: { schoolId: user.schoolId } },
+    where: { id: studentId, schoolId: user.schoolId },
   });
 
   if (deleted.count === 0)
-    return NextResponse.json({ error: "Student not found or access forbidden" }, { status: 404 });
+    return NextResponse.json({ error: "Student not found" }, { status: 404 });
 
-  return NextResponse.json({ data: "Student deleted" }, { status: 200 });
+  return NextResponse.json({ data: "Student deleted" });
 }
+
+/**
+ * -------------------------
+ * Design reasoning → Full item route for getting, updating, and deleting a student safely with transactions.
+ * Structure → GET + PATCH + DELETE
+ * Implementation guidance → Pass studentId from route params; PATCH allows optional updates; DELETE cascades user deletion.
+ * Scalability insight → Extend update schema for additional fields; add role-based conditional logic; transaction ensures consistency.
+ */

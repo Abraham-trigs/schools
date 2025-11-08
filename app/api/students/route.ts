@@ -1,51 +1,49 @@
 // app/api/students/route.ts
-// Purpose: API route for listing and creating students, now scoped by classId if provided.
+// Purpose: Collection route for Students - list (GET) and create (POST)
+
+"use server";
 
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/db";
-import { cookieUser } from "@/lib/cookieUser";
-import { Role } from "@prisma/client";
-import bcrypt from "bcryptjs";
+import { prisma } from "@/lib/prisma";
 import { z } from "zod";
-import { inferRoleFromPosition } from "@/lib/api/constants/roleInference.ts";
+import { cookieUser } from "@/lib/cookieUser";
+import bcrypt from "bcryptjs";
+import { Role } from "@prisma/client";
 
-// --- Validation schema for POST ---
+// ------------------------- Schemas -------------------------
 const studentSchema = z.object({
-  name: z.string().min(1),
-  email: z.string().email(),
-  password: z.string().min(6),
-  classId: z.string(),
+  name: z.string().min(1, "Name is required"),
+  email: z.string().email("Invalid email address"),
+  password: z.string().min(6, "Password must be at least 6 characters"),
+  classId: z.string().optional(),
   enrolledAt: z
     .preprocess((val) => (val ? new Date(val as string) : undefined), z.date())
     .optional(),
 });
 
+type SortBy = "name" | "email" | "enrolledAt";
+type SortOrder = "asc" | "desc";
+
+// ------------------------- GET: List students -------------------------
 export async function GET(req: NextRequest) {
-  // ---------------------------
-  // Auth
-  // ---------------------------
-  const user = await cookieUser();
+  const user = await cookieUser(req);
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  // ---------------------------
-  // Query params
-  // ---------------------------
-  const { searchParams } = new URL(req.url);
-  const page = Number(searchParams.get("page") || 1);
-  const perPage = Number(searchParams.get("perPage") || 10);
-  const search = searchParams.get("search") || "";
-  const classId = searchParams.get("classId"); // optional class filter
+  const url = new URL(req.url);
+  const classId = url.searchParams.get("classId");
+  const search = url.searchParams.get("search") || "";
+  const page = Number(url.searchParams.get("page") || 1);
+  const perPage = Number(url.searchParams.get("perPage") || 10);
+  const sortBy = (url.searchParams.get("sortBy") || "name") as SortBy;
+  const sortOrder = (url.searchParams.get("sortOrder") || "asc") as SortOrder;
 
-  // ---------------------------
-  // Build Prisma where clause
-  // ---------------------------
-  const where: any = {
-    user: {
-      schoolId: user.schoolId,
-      role: { in: [Role.STUDENT, Role.CLASS_REP] },
-    },
-  };
+  const validSortFields: SortBy[] = ["name", "email", "enrolledAt"];
+  if (!validSortFields.includes(sortBy)) {
+    return NextResponse.json({ error: "Invalid sortBy field" }, { status: 400 });
+  }
 
+  const where: any = { schoolId: user.schoolId };
+  if (classId) where.classId = classId;
   if (search) {
     where.OR = [
       { user: { name: { contains: search, mode: "insensitive" } } },
@@ -53,106 +51,97 @@ export async function GET(req: NextRequest) {
     ];
   }
 
-  if (classId) {
-    where.classId = classId; // only students in this class
-  }
+  let orderBy: any = {};
+  if (sortBy === "name") orderBy.user = { name: sortOrder };
+  else if (sortBy === "email") orderBy.user = { email: sortOrder };
+  else orderBy[sortBy] = sortOrder;
 
-  // ---------------------------
-  // Fetch total & students
-  // ---------------------------
-  const total = await prisma.student.count({ where });
-  const students = await prisma.student.findMany({
-    where,
-    include: {
-      user: { select: { id: true, name: true, email: true } },
-      class: { select: { id: true, name: true } },
-      parents: true,
-      exams: true,
-      transactions: true,
-      attendances: true,
-    },
-    skip: (page - 1) * perPage,
-    take: perPage,
-    orderBy: { user: { name: "asc" } },
-  });
-
-  // ---------------------------
-  // Return result
-  // ---------------------------
-  if (students.length === 0) {
-    return NextResponse.json({ data: [], total, page, perPage, message: "No students in this class" });
-  }
-
-  return NextResponse.json({ data: students, total, page, perPage });
-}
-
-export async function POST(req: NextRequest) {
-  const user = await cookieUser();
-  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
-  const allowedRoles: Role[] = ["ADMIN", "PRINCIPAL"].map(inferRoleFromPosition);
-  if (!allowedRoles.includes(user.role))
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-
-  const body = await req.json();
-  const data = studentSchema.parse(body);
-
-  const hashedPassword = await bcrypt.hash(data.password, 10);
-
-  const newUser = await prisma.user.create({
-    data: {
-      name: data.name,
-      email: data.email,
-      password: hashedPassword,
-      role: Role.STUDENT,
-      schoolId: user.schoolId,
-      student: {
-        create: {
-          classId: data.classId,
-          enrolledAt: data.enrolledAt ?? new Date(),
-        },
-      },
-    },
-    include: {
-      student: {
+  try {
+    const [students, total] = await prisma.$transaction([
+      prisma.student.findMany({
+        where,
         include: {
-          class: true,
+          user: { select: { id: true, name: true, email: true } },
+          class: { select: { id: true, name: true } },
           parents: true,
           exams: true,
           transactions: true,
           attendances: true,
         },
-      },
-    },
-  });
+        skip: (page - 1) * perPage,
+        take: perPage,
+        orderBy,
+      }),
+      prisma.student.count({ where }),
+    ]);
 
-  return NextResponse.json({
-    data: {
-      ...newUser.student,
-      user: { id: newUser.id, name: newUser.name, email: newUser.email },
-    },
-  }, { status: 201 });
+    const totalPages = Math.ceil(total / perPage);
+    return NextResponse.json({ data: students, total, page, perPage, totalPages });
+  } catch (err: any) {
+    console.error("GET /api/students failed:", err);
+    return NextResponse.json({ error: "Failed to fetch students" }, { status: 500 });
+  }
 }
 
-/* 
-Design reasoning →
-- Added optional `classId` filtering to support class-specific student lists.
-- Returns a clear "No students in this class" message if no students found.
-- Maintains search, pagination, and school-scoped security.
-- Server-side filtering prevents exposing students from other classes/schools.
+// ------------------------- POST: Create new student -------------------------
+export async function POST(req: NextRequest) {
+  const user = await cookieUser(req);
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-Structure →
-- GET: list students (supports search, pagination, optional classId)
-- POST: create a new student (validated + hashed password)
-- Uses cookieUser() for auth and role checks
+  try {
+    const body = await req.json();
+    const data = studentSchema.parse(body);
 
-Implementation guidance →
-- Frontend should pass `classId` when opening the StudentsModal:
-  `/api/students?classId=<id>&page=1&perPage=10`
-- `search` param optional; defaults to "".
-- Pagination uses `page` and `perPage`.
+    const hashedPassword = await bcrypt.hash(data.password, 10);
 
-Scalability insight →
-- Can add additional filters (grade, enrollment year, status) in the `where` clause.
-- Supports multi-class views without changing UI; simply pass `classId` per modal context.
-*/
+    const newUser = await prisma.user.create({
+      data: {
+        name: data.name,
+        email: data.email,
+        password: hashedPassword,
+        role: Role.STUDENT,
+        schoolId: user.schoolId,
+        student: {
+          create: {
+            classId: data.classId,
+            enrolledAt: data.enrolledAt ?? new Date(),
+            schoolId: user.schoolId,
+          },
+        },
+      },
+      include: {
+        student: {
+          include: {
+            class: true,
+            parents: true,
+            exams: true,
+            transactions: true,
+            attendances: true,
+          },
+        },
+      },
+    });
+
+    return NextResponse.json(
+      {
+        data: {
+          ...newUser.student,
+          user: { id: newUser.id, name: newUser.name, email: newUser.email },
+        },
+      },
+      { status: 201 }
+    );
+  } catch (err: any) {
+    if (err instanceof z.ZodError) return NextResponse.json({ error: err.flatten() }, { status: 400 });
+    console.error("POST /api/students failed:", err);
+    return NextResponse.json({ error: err.message || "Unexpected error" }, { status: 500 });
+  }
+}
+
+/**
+ * -------------------------
+ * Design reasoning → Full collection route for listing and creating students with validation, auth, server-side sort, and pagination.
+ * Structure → GET + POST with filters, pagination, sort.
+ * Implementation guidance → Pass classId, search, page, perPage, sortBy, sortOrder from store.
+ * Scalability insight → Extend sort/filter/pagination easily for large datasets.
+ */

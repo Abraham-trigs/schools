@@ -218,25 +218,29 @@ export const useClassesStore = create<ClassesStore>((set, get) => {
     // Delete class
     // ---------------------------
     deleteClass: async (id) => {
-      set({ loading: true, error: null });
-      try {
-        await apiClient(`${API_ENDPOINTS.classes}/${id}`, {
-          method: "DELETE",
-          showSuccess: true,
-          successMessage: "Class deleted successfully",
-        });
+  set({ loading: true, error: null });
+  try {
+    await apiClient(`${API_ENDPOINTS.classes}/${id}`, {
+      method: "DELETE",
+      showSuccess: true,
+      successMessage: "Class deleted successfully",
+    });
 
-        set((state) => ({
-          classes: state.classes.filter((c) => c.id !== id),
-          selectedClass: state.selectedClass?.id === id ? null : state.selectedClass,
-          cache: {}, // invalidate cache
-          loading: false,
-        }));
-      } catch (err: any) {
-        set({ error: err.message, loading: false });
-        notify(err.message, "error");
-      }
-    },
+    set((state) => ({
+      classes: state.classes.filter((c) => c.id !== id),
+      selectedClass: state.selectedClass?.id === id ? null : state.selectedClass,
+      cache: {}, // invalidate cache
+      loading: false,
+    }));
+
+    return true; // <-- indicate success
+  } catch (err: any) {
+    set({ error: err.message, loading: false });
+    notify(err.message, "error");
+    return false; // <-- indicate failure
+  }
+},
+
 
     // ---------------------------
     // Mark attendance

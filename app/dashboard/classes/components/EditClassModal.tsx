@@ -1,102 +1,144 @@
+// app/dashboard/classes/components/EditClassModal.tsx
+// Purpose: Modal for editing a class name, fully controlled, optimized for UX, and using correct notification calls
+
 "use client";
 
 import { useState, useEffect } from "react";
-import clsx from "clsx";
-import { useClassesStore } from "@/app/store/useClassesStore.ts";
+import { notify } from "@/lib/helpers/notifications"; // import the object with .success/.error/.info
+import { useClassesStore } from "@/app/store/useClassesStore";
 
 interface EditClassModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSuccess?: () => void;
+  onSuccess: () => void;
+  classId: string; // ID of the class to edit
+  className: string; // Current class name to prefill input
 }
 
 export default function EditClassModal({
   isOpen,
   onClose,
   onSuccess,
+  classId,
+  className,
 }: EditClassModalProps) {
-  const { selectedClass, updateClass, loading, clearSelectedClass } =
-    useClassesStore();
-  const [name, setName] = useState("");
-  const [error, setError] = useState("");
+  const { updateClass } = useClassesStore();
+  const [name, setName] = useState(""); // Controlled input state
+  const [saving, setSaving] = useState(false); // Tracks save/loading state
 
-  // Keep input synced when a class is selected or changed
+  // ---------------------------
+  // Prefill input whenever modal opens or className changes
+  // ---------------------------
   useEffect(() => {
-    if (selectedClass) setName(selectedClass.name);
-  }, [selectedClass]);
+    if (isOpen) setName(className || "");
+  }, [isOpen, className]);
 
-  // Cleanup when modal closes
-  useEffect(() => {
-    if (!isOpen) {
-      setName("");
-      setError("");
-      clearSelectedClass?.(); // optional: clear store selection when closing
-    }
-  }, [isOpen, clearSelectedClass]);
-
-  if (!isOpen || !selectedClass) return null;
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError("");
-
-    const trimmed = name.trim();
-    if (!trimmed) {
-      setError("Class name cannot be empty");
+  // ---------------------------
+  // Handle save/update action
+  // ---------------------------
+  const handleSave = async () => {
+    const trimmedName = name.trim();
+    if (!trimmedName) {
+      notify.error("Class name cannot be empty"); // Correct usage of notifications object
       return;
     }
 
-    const { success } = await updateClass(selectedClass.id, trimmed);
-
-    if (success) {
-      onSuccess?.();
-      onClose();
-    } else {
-      setError("Failed to update class. Try again.");
+    setSaving(true);
+    try {
+      const result = await updateClass(classId, trimmedName); // Call store update
+      if (result.success) {
+        notify.success("Class updated successfully"); // Success toast
+        onSuccess(); // Parent can refresh list/chart
+        onClose();
+      } else {
+        notify.error(result.error || "Failed to update class"); // Show API error
+      }
+    } catch (err: any) {
+      notify.error(err?.message || "Unexpected error"); // Catch-all error handling
+    } finally {
+      setSaving(false); // Re-enable input/buttons
     }
   };
 
+  // ---------------------------
+  // Do not render modal if closed
+  // ---------------------------
+  if (!isOpen) return null;
+
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-      <div className="bg-white rounded-lg shadow-lg w-full max-w-md p-6">
-        <h2 className="text-xl font-semibold mb-4">Edit Class</h2>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+      <div className="bg-white p-6 rounded-md w-full max-w-md">
+        <h2 className="text-lg font-bold mb-4">Edit Class: {className}</h2>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium mb-1">Class Name</label>
-            <input
-              type="text"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              className="w-full border px-3 py-2 rounded focus:outline-ford-primary"
-              placeholder="Enter class name"
-              required
-            />
-          </div>
+        <div className="mb-4">
+          <label className="block text-sm font-medium mb-1">Class Name</label>
+          <input
+            type="text"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            className="w-full px-3 py-2 border rounded-md focus:outline-none focus:ring focus:ring-ford-primary"
+            disabled={saving} // disable input during save
+          />
+        </div>
 
-          {error && <p className="text-red-500 text-sm">{error}</p>}
-
-          <div className="flex justify-end gap-2">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-4 py-2 rounded bg-gray-200 hover:bg-gray-300"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={loading}
-              className={clsx(
-                "px-4 py-2 rounded bg-ford-primary text-white hover:bg-ford-secondary",
-                loading && "opacity-50 cursor-not-allowed"
-              )}
-            >
-              {loading ? "Updating..." : "Update"}
-            </button>
-          </div>
-        </form>
+        <div className="flex justify-end gap-2">
+          <button
+            onClick={onClose}
+            className="px-4 py-2 rounded border hover:bg-gray-100"
+            disabled={saving} // prevent closing mid-save if needed
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleSave}
+            className={`px-4 py-2 rounded text-white ${
+              saving
+                ? "bg-gray-400 cursor-not-allowed"
+                : "bg-ford-primary hover:bg-ford-secondary"
+            }`}
+            disabled={saving}
+          >
+            {saving ? "Saving..." : "Save"}
+          </button>
+        </div>
       </div>
     </div>
   );
 }
+
+/* Integration notes:
+- Use modal like:
+  <EditClassModal
+    isOpen={editOpen}
+    onClose={() => setEditOpen(false)}
+    onSuccess={fetchClasses} // refresh list/chart
+    classId={selectedClass.id}
+    className={selectedClass.name}
+  />
+- Ensure store provides updateClass(id, name) returning { success: boolean, error?: string }.
+*/
+
+/* Design reasoning:
+- Calls notify.success/error correctly using the notifications object.
+- Controlled input prevents blank/uncontrolled state.
+- Save state disables input/buttons, providing UX feedback.
+- Minimal props (id + name) reduce coupling to full store object.
+*/
+
+/* Structure:
+- Props: isOpen, onClose, onSuccess, classId, className
+- State: name (input), saving (button state)
+- Handlers: handleSave
+- Returns: modal JSX with controlled input, buttons, and save feedback
+*/
+
+/* Implementation guidance:
+- Parent page only needs to pass ID and current name.
+- onSuccess triggers list/chart refresh externally.
+- Keep store updateClass method returning success/error object.
+*/
+
+/* Scalability insight:
+- Can extend to edit multiple fields by adding props and updating handleSave.
+- Reusable pattern for other single-entity updates by replacing label/API call.
+*/

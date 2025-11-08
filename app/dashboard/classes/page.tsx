@@ -144,8 +144,14 @@ export default function ClassesPage() {
                       Delete
                     </button>
                     <button
-                      onClick={() => {
-                        fetchClassById(cls.id);
+                      onClick={async () => {
+                        // Fetch class details for the selected class
+                        await fetchClassById(cls.id);
+
+                        // Fetch students scoped to this class using the updated store function
+                        await fetchStudents(1, perPage, "", cls.id);
+
+                        // Open the modal only after the students are fetched
                         setStudentsOpen(true);
                       }}
                       className="px-3 py-1 bg-ford-primary text-white rounded hover:bg-ford-secondary"

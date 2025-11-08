@@ -1,66 +1,101 @@
-import { NextResponse } from "next/server";
-import { prisma } from "@/lib/db";
-import { cookieUser } from "@/lib/cookieUser";
-import { z } from "zod";
+// app/api/classes/route.ts
+// Purpose: RESTful API for managing classes with pagination, search, sorting, nested students, attendance, and role-based security.
 
-const classSchema = z.object({
+import { NextRequest, NextResponse } from "next/server";
+import { prisma } from "@/lib/prisma";
+import { z } from "zod";
+import { cookieUser } from "@/lib/cookieUser";
+import { Role } from "@prisma/client";
+
+// ------------------------- Schemas -------------------------
+// Schema for validating class creation input
+const classCreateSchema = z.object({
   name: z.string().min(1, "Class name is required"),
 });
 
-// GET all classes
-export async function GET(req: Request) {
+// Schema for validating class update input (currently unused here)
+const classUpdateSchema = z.object({
+  name: z.string().min(1, "Class name is required").optional(),
+});
+
+// ------------------------- GET: List classes -------------------------
+export async function GET(req: NextRequest) {
+  // Authenticate user from cookies
   const user = await cookieUser(req);
-  if (!user) return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const { searchParams } = new URL(req.url);
-  const page = Number(searchParams.get("page") || "1");
-  const perPage = Number(searchParams.get("perPage") || "10");
-  const search = searchParams.get("search") || "";
+  try {
+    const url = new URL(req.url);
 
-  const where = {
-    schoolId: user.schoolId,
-    name: search ? { contains: search, mode: "insensitive" } : undefined,
-  };
+    // Extract query params for pagination, search, sorting
+    const search = url.searchParams.get("search") || "";
+    const page = Number(url.searchParams.get("page") || 1);
+    const perPage = Number(url.searchParams.get("perPage") || 10);
+    const sortBy = (url.searchParams.get("sortBy") as "name" | "createdAt" | "studentCount") || "name";
+    const sortOrder = (url.searchParams.get("sortOrder") as "asc" | "desc") || "asc";
 
-  const total = await prisma.class.count({ where });
-  const classes = await prisma.class.findMany({
-    where,
-    include: {
-      students: {
-        include: {
-          user: { select: { id: true, name: true, email: true } },
-        },
-      },
-    },
-    skip: (page - 1) * perPage,
-    take: perPage,
-    orderBy: { name: "asc" },
-  });
+    // Base filter: only classes belonging to user's school
+    const where: any = { schoolId: user.schoolId };
+    if (search) {
+      // Case-insensitive search on class name
+      where.name = { contains: search, mode: "insensitive" };
+    }
 
-  return NextResponse.json({ classes, total, page, perPage });
+    // Count total classes matching filter (for pagination)
+    const total = await prisma.class.count({ where });
+
+    // Fetch classes with students included, pagination, and sorting
+    const classes = await prisma.class.findMany({
+      where,
+      include: { students: true }, // include students for UI purposes
+      skip: (page - 1) * perPage,  // pagination offset
+      take: perPage,               // pagination limit
+      orderBy:
+        sortBy === "studentCount"
+          ? { students: { _count: sortOrder } } // special case: sort by number of students
+          : { [sortBy]: sortOrder },            // normal sort by field
+    });
+
+    // Return classes and pagination info
+    return NextResponse.json({ classes, total, page, perPage });
+  } catch (err: any) {
+    // Catch-all server error
+    return NextResponse.json({ error: err.message }, { status: 500 });
+  }
 }
 
-// POST create class
-export async function POST(req: Request) {
+// ------------------------- POST: Create class -------------------------
+export async function POST(req: NextRequest) {
+  // Authenticate user
+  const user = await cookieUser(req);
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  // Role-based access control: only ADMIN or PRINCIPAL can create
+  if (![Role.ADMIN, Role.PRINCIPAL].includes(user.role))
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+
   try {
-    const user = await cookieUser(req);
-    if (!user) return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
-
+    // Parse request body and validate
     const body = await req.json();
-    const data = classSchema.parse(body);
+    const data = classCreateSchema.parse(body);
 
+    // Create new class scoped to user's school and creator
     const newClass = await prisma.class.create({
       data: {
         name: data.name,
         schoolId: user.schoolId,
+        createdById: user.id,
       },
+      include: { students: true }, // include empty students array
     });
 
+    // Return created class with 201 status
     return NextResponse.json(newClass, { status: 201 });
-  } catch (error: any) {
-    return NextResponse.json(
-      { message: error.message || "Failed to create class" },
-      { status: 400 }
-    );
+  } catch (err: any) {
+    // Zod validation error handling
+    if (err instanceof z.ZodError) return NextResponse.json({ error: err.flatten() }, { status: 400 });
+
+    // Generic server error
+    return NextResponse.json({ error: err.message }, { status: 500 });
   }
 }

@@ -6,8 +6,8 @@ import {
   DialogPanel,
   DialogTitle,
 } from "@headlessui/react";
-import { useState, useEffect, useMemo } from "react";
-import { useClassesStore } from "@/app/store/useClassesStore";
+import { useEffect, useState, useMemo } from "react";
+import { useStudentStore } from "@/app/store/useStudentStore.ts";
 import { useRouter } from "next/navigation";
 
 interface StudentsModalProps {
@@ -23,39 +23,49 @@ export default function StudentsModal({
   classId,
   className,
 }: StudentsModalProps) {
-  const { fetchStudents, students, loading } = useClassesStore();
-  const [search, setSearch] = useState("");
-  const [debouncedSearch, setDebouncedSearch] = useState("");
   const router = useRouter();
+  const {
+    students,
+    loading,
+    fetchStudents,
+    setSearch,
+    search: storeSearch,
+    page,
+    perPage,
+  } = useStudentStore();
 
-  // Debounce search input
-  useEffect(() => {
-    const handler = setTimeout(() => setDebouncedSearch(search), 300);
-    return () => clearTimeout(handler);
-  }, [search]);
+  const [localSearch, setLocalSearch] = useState("");
 
+  // -------------------------
   // Fetch students when modal opens
+  // -------------------------
   useEffect(() => {
-    if (isOpen && classId) fetchStudents(classId);
-  }, [isOpen, classId, fetchStudents]);
+    if (isOpen && classId) {
+      fetchStudents(1, perPage, "", classId);
+    }
+  }, [isOpen, classId, fetchStudents, perPage]);
 
-  // Normalize string for search
+  // -------------------------
+  // Debounce search input via store
+  // -------------------------
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      setSearch(localSearch, classId); // store handles debounce and fetch
+    }, 300);
+    return () => clearTimeout(handler);
+  }, [localSearch, classId, setSearch]);
+
+  // -------------------------
+  // Highlight matching text
+  // -------------------------
   const normalize = (str: string) =>
     str
       .normalize("NFD")
       .replace(/[\u0300-\u036f]/g, "")
       .toLowerCase();
 
-  // Filter students
-  const filteredStudents = useMemo(() => {
-    const term = normalize(debouncedSearch.trim());
-    if (!term) return students.filter((s) => s.user?.name);
-    return students.filter((s) => normalize(s.user?.name ?? "").includes(term));
-  }, [students, debouncedSearch]);
-
-  // Highlight all matches in the name
   const highlightMatches = (name: string) => {
-    const term = normalize(debouncedSearch.trim());
+    const term = normalize(storeSearch.trim());
     if (!term) return name;
 
     const normalizedName = normalize(name);
@@ -64,7 +74,6 @@ export default function StudentsModal({
 
     const regex = new RegExp(term, "gi");
     let match;
-
     while ((match = regex.exec(normalizedName)) !== null) {
       const start = match.index;
       const end = start + match[0].length;
@@ -82,7 +91,6 @@ export default function StudentsModal({
 
       lastIndex = end;
     }
-
     if (lastIndex < name.length)
       result.push(<span key={lastIndex}>{name.slice(lastIndex)}</span>);
 
@@ -103,25 +111,22 @@ export default function StudentsModal({
           <input
             type="text"
             placeholder="Search students..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            value={localSearch}
+            onChange={(e) => setLocalSearch(e.target.value)}
             className="w-full border rounded-lg px-3 py-2 mb-3 focus:outline-none focus:ring-2 focus:ring-ford-primary"
           />
 
           {loading ? (
             <p className="text-gray-500 text-center">Loading...</p>
-          ) : filteredStudents.length === 0 ? (
-            <p className="text-gray-500 text-center">
-              No students match your search.
-            </p>
+          ) : students.length === 0 ? (
+            <p className="text-gray-500 text-center">No students found.</p>
           ) : (
             <ul className="space-y-2 max-h-64 overflow-y-auto">
-              {filteredStudents.map((s) => (
+              {students.map((s) => (
                 <li
                   key={s.id}
                   className="px-2 py-1 border rounded cursor-pointer hover:bg-gray-100"
                   onClick={() => {
-                    // Navigate to Student Detail page using studentId
                     const studentId = s.studentId ?? s.id;
                     router.push(`/dashboard/students/${studentId}`);
                     onClose();

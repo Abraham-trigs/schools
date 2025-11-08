@@ -1,6 +1,6 @@
 // app/dashboard/staff/components/AddStaffModal.tsx
-// Purpose: Modal form to create new staff; supports multi-subject selection, infers role/department/class automatically,
-//          posts via Zustand store (useStaffStore), supports optimistic UI and school scoping.
+// Purpose: Modal form to create new staff; supports multi-subject selection, auto-infers role/department/class,
+//          posts via useStaffStore with optimistic UI updates and school scoping.
 
 "use client";
 
@@ -16,7 +16,7 @@ import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useStaffStore } from "@/app/store/useStaffStore";
 import { useClassesStore } from "@/app/store/useClassesStore";
-import { useSubjectsStore } from "@/app/store/subjectStore.ts"; // Correct import
+import { useSubjectsStore } from "@/app/store/subjectStore";
 import {
   roleToDepartment,
   roleRequiresClass,
@@ -48,7 +48,7 @@ interface AddStaffModalProps {
 export default function AddStaffModal({ isOpen, onClose }: AddStaffModalProps) {
   const { createStaff, loading: isLoading } = useStaffStore();
   const { classes, fetchClasses } = useClassesStore();
-  const { subjects, fetchSubjects } = useSubjectsStore(); // FIX: match imported function name
+  const { subjects, fetchSubjects } = useSubjectsStore();
 
   const {
     register,
@@ -73,7 +73,7 @@ export default function AddStaffModal({ isOpen, onClose }: AddStaffModalProps) {
 
   const position = watch("position");
 
-  // ---------------------- Fetch classes & subjects when modal opens ----------------------
+  // ---------------------- Fetch classes & subjects on modal open ----------------------
   useEffect(() => {
     if (isOpen) {
       fetchClasses();
@@ -85,9 +85,7 @@ export default function AddStaffModal({ isOpen, onClose }: AddStaffModalProps) {
   useEffect(() => {
     if (position) {
       const inferredRole = inferRoleFromPosition(position);
-      const inferredDept = inferredRole
-        ? roleToDepartment[inferredRole]
-        : undefined;
+      const inferredDept = roleToDepartment[inferredRole];
       if (inferredDept)
         reset((prev) => ({ ...prev, department: inferredDept }));
     }
@@ -111,11 +109,12 @@ export default function AddStaffModal({ isOpen, onClose }: AddStaffModalProps) {
     const staffPayload = {
       position: data.position,
       department: data.department || roleToDepartment[role],
-      classId: data.classId ?? null,
+      classId: requiresClass ? data.classId ?? null : null,
       salary: data.salary ?? null,
       subjects: data.subjects ?? [],
     };
 
+    // Optimistic UI update via store
     await createStaff(userPayload, staffPayload);
 
     reset();
@@ -219,7 +218,7 @@ export default function AddStaffModal({ isOpen, onClose }: AddStaffModalProps) {
               />
             </div>
 
-            {/* Subjects - Multi Select */}
+            {/* Subjects */}
             <div>
               <label className="block text-sm font-medium">Subjects</label>
               <Controller
@@ -283,20 +282,19 @@ export default function AddStaffModal({ isOpen, onClose }: AddStaffModalProps) {
 }
 
 /* Design reasoning:
-- Uses Zustand stores for subjects, classes, and staff to maintain consistent state across the dashboard.
-- Multi-select for subjects improves UX for teachers handling multiple subjects and reduces manual errors.
-- Auto-fills department and conditionally renders class dropdown based on position for clarity and efficiency.
+- Uses Zustand stores for subjects, classes, and staff to maintain consistent dashboard state.
+- Multi-select for subjects improves UX for teachers handling multiple subjects.
+- Auto-fills department and conditionally renders class dropdown based on position to prevent errors.
 
 Structure:
-- Main exported component: AddStaffModal
-- Form with react-hook-form + Zod validation
-- Controller used for multi-select subject integration
-- Form reset on modal close or successful submit
+- AddStaffModal component with react-hook-form + Zod validation
+- Controller integration for multi-select subjects
+- Resets form on close or successful submit
 
 Implementation guidance:
-- Ensure `fetchSubjects()` and `fetchClasses()` are invoked on modal open to populate selects.
-- Can extend to bulk assignment or role-specific logic.
+- Ensure `fetchSubjects()` and `fetchClasses()` are called when modal opens.
+- Connect form to `useStaffStore.createStaff` for optimistic UI updates.
 
 Scalability insight:
-- Multi-select pattern allows extending to other relational fields (skills, certifications) without changing core modal logic.
+- Multi-select pattern allows extending to other relational fields (e.g., skills, certifications) without refactoring modal logic.
 */

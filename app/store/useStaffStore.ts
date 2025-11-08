@@ -1,18 +1,19 @@
 // app/store/useStaffStore.ts
-// Purpose: Zustand store for managing Staff data, including CRUD, pagination, search (debounced), and cache for performance.
+// Purpose: Zustand store for managing Staff with full CRUD, pagination, search (debounced), caching, and role/class logic.
 
 "use client";
 
 import { create } from "zustand";
 import { debounce } from "lodash";
-import { apiClient } from "@/lib/apiClient";
+import { apiClient } from "@/lib/apiClient.ts";
+import { requiresClass } from "@/lib/api/constants/roleInference";
 
 // ------------------------- Types -------------------------
 export interface Staff {
   id: string;
   userId: string;
-  user: { id: string; name: string; email: string; phone?: string };
-  class?: { id: string; name: string; students?: any[] } | null;
+  user: { id: string; name: string; email: string };
+  class?: { id: string; name: string } | null;
   department?: { id: string; name: string } | null;
   position?: string | null;
   salary?: number | null;
@@ -22,19 +23,15 @@ export interface Staff {
   updatedAt: string;
 }
 
-interface UserPayload {
+interface StaffPayload {
   name: string;
   email: string;
-  password: string;
-  role?: string;
-}
-
-interface StaffPayload {
-  position?: string;
-  department?: string;
+  password?: string;
+  position?: string | null;
   classId?: string | null;
   salary?: number | null;
   subject?: string | null;
+  hireDate?: string | null;
 }
 
 interface StaffState {
@@ -57,9 +54,9 @@ interface StaffState {
   fetchStaffDebounced: (page?: number, search?: string) => void;
   fetchStaffById: (id: string) => Promise<Staff | null>;
 
-  createStaff: (user: UserPayload, staff: StaffPayload) => Promise<Staff | null>;
-  updateStaff: (id: string, data: Partial<Staff>) => void;
-  deleteStaff: (id: string, onDeleted?: () => void) => Promise<void>;
+  createStaff: (payload: StaffPayload) => Promise<Staff | null>;
+  updateStaff: (id: string, payload: Partial<StaffPayload>) => Promise<Staff | null>;
+  deleteStaff: (id: string) => Promise<void>;
 
   totalPages: () => number;
 }
@@ -90,7 +87,6 @@ export const useStaffStore = create<StaffState>((set, get) => {
 
     setSelectedStaff: (staff) => set({ selectedStaff: staff }),
 
-    // ------------------------- Fetch paginated staff -------------------------
     fetchStaff: async (page = get().page, search = get().search) => {
       const cached = get().cache[page];
       if (cached && !search) {
@@ -117,7 +113,6 @@ export const useStaffStore = create<StaffState>((set, get) => {
 
     fetchStaffDebounced,
 
-    // ------------------------- Fetch individual staff -------------------------
     fetchStaffById: async (id: string) => {
       set({ loading: true, error: null });
       try {
@@ -129,9 +124,7 @@ export const useStaffStore = create<StaffState>((set, get) => {
 
         const fetched = await apiClient<Staff>(`/api/staff/${id}`);
         set({ selectedStaff: fetched });
-        set((state) => ({
-          staffList: [fetched, ...state.staffList.filter((s) => s.id !== id)],
-        }));
+        set((state) => ({ staffList: [fetched, ...state.staffList.filter((s) => s.id !== id)] }));
         return fetched;
       } catch (err: any) {
         set({ error: err?.message || "Failed to fetch staff by id" });
@@ -141,106 +134,79 @@ export const useStaffStore = create<StaffState>((set, get) => {
       }
     },
 
-    updateStaffById: async (id: string, payload: Partial<Staff>) => {
-  set((state) => {
-    const updatedList = state.staffList.map((s) =>
-      s.id === id ? { ...s, ...payload } : s
-    );
-    const updatedSelected =
-      state.selectedStaff?.id === id
-        ? { ...state.selectedStaff, ...payload }
-        : state.selectedStaff;
-    return { staffList: updatedList, selectedStaff: updatedSelected };
-  });
-
+// Corrected createStaff in useStaffStore
+createStaff: async (payload: StaffPayload) => {
+  set({ loading: true, error: null });
   try {
-    const res = await apiClient<Staff>(`/api/staff/${id}`, {
-      method: "PUT",
-      body: JSON.stringify(payload),
+    // Flatten payload to match backend StaffCreateRequest
+    const body = {
+      name: payload.name,
+      email: payload.email,
+      password: payload.password,
+      position: payload.position ?? "TEACHER",
+      classId: payload.classId ?? null,
+      salary: payload.salary ?? null,
+      subject: payload.subject ?? null,
+      hireDate: payload.hireDate ?? null,
+    };
+
+    const newStaff = await apiClient<Staff>("/api/staff", {
+      method: "POST",
+      body: JSON.stringify(body),
     });
 
-    // Update store with server response to ensure full sync
     set((state) => ({
-      staffList: state.staffList.map((s) => (s.id === id ? res : s)),
-      selectedStaff: state.selectedStaff?.id === id ? res : state.selectedStaff,
+      staffList: [newStaff, ...state.staffList],
+      total: state.total + 1,
     }));
 
-    return res;
+    return newStaff;
+
   } catch (err: any) {
-    console.error("Failed to update staff:", err);
-    throw err;
+    // decode and stringify Zod errors if needed
+    const errorMessage =
+      err?.error?.message ||
+      (err?.error && typeof err.error === "object"
+        ? JSON.stringify(err.error)
+        : err?.message) ||
+      "Failed to create staff";
+    set({ error: errorMessage });
+    return null;
+  } finally {
+    set({ loading: false });
   }
 },
 
 
-    // ------------------------- Create staff -------------------------
-    createStaff: async (userPayload, staffPayload) => {
+    updateStaff: async (id, payload) => {
       set({ loading: true, error: null });
       try {
-        const newStaff = await apiClient<Staff>("/api/staff", {
-          method: "POST",
-          body: JSON.stringify({ ...userPayload, ...staffPayload }),
+        const updated = await apiClient<Staff>(`/api/staff/${id}`, {
+          method: "PUT",
+          body: JSON.stringify(payload),
         });
         set((state) => ({
-          staffList: [newStaff, ...state.staffList],
-          total: state.total + 1,
+          staffList: state.staffList.map((s) => (s.id === id ? updated : s)),
+          selectedStaff: state.selectedStaff?.id === id ? updated : state.selectedStaff,
         }));
-        return newStaff;
+        return updated;
       } catch (err: any) {
-        set({ error: err?.error?.message || err?.message || "Failed to create staff" });
+        set({ error: err?.message || "Failed to update staff" });
         return null;
       } finally {
         set({ loading: false });
       }
     },
 
-    // ------------------------- Update staff in store (optimistic) -------------------------
-    updateStaff: (id, data) => {
-      set((state) => {
-        const updatedList = state.staffList.map((s) =>
-          s.id === id ? { ...s, ...data } : s
-        );
-        const updatedSelected =
-          state.selectedStaff?.id === id
-            ? { ...state.selectedStaff, ...data }
-            : state.selectedStaff;
-        return {
-          staffList: updatedList,
-          selectedStaff: updatedSelected || null,
-          cache: Object.fromEntries(
-            Object.entries(state.cache).map(([k, list]) => [
-              k,
-              list.map((s) => (s.id === id ? { ...s, ...data } : s)),
-            ])
-          ),
-        };
-      });
-    },
-
-    // ------------------------- Delete staff with callback -------------------------
-    deleteStaff: async (id: string, onDeleted?: () => void) => {
+    deleteStaff: async (id) => {
       set({ loading: true, error: null });
       try {
-        const res = await apiClient<{ success: boolean; error?: any }>(`/api/staff/${id}`, {
-          method: "DELETE",
-        });
-
-        if (res.success) {
-          set((state) => ({
-            staffList: state.staffList.filter((s) => s.id !== id),
-            selectedStaff: state.selectedStaff?.id === id ? null : state.selectedStaff,
-            total: Math.max(0, state.total - 1),
-            cache: Object.fromEntries(
-              Object.entries(state.cache).map(([k, list]) => [
-                k,
-                list.filter((s) => s.id !== id),
-              ])
-            ),
-          }));
-          if (onDeleted) onDeleted();
-        } else {
-          set({ error: res.error?.message || "Failed to delete staff" });
-        }
+        await apiClient(`/api/staff/${id}`, { method: "DELETE" });
+        set((state) => ({
+          staffList: state.staffList.filter((s) => s.id !== id),
+          selectedStaff: state.selectedStaff?.id === id ? null : state.selectedStaff,
+          total: Math.max(0, state.total - 1),
+        }));
       } catch (err: any) {
         set({ error: err?.message || "Failed to delete staff" });
       } finally {
@@ -253,14 +219,13 @@ export const useStaffStore = create<StaffState>((set, get) => {
 });
 
 /* Design reasoning:
-- Debounced search + cache ensures performant and responsive UI when navigating pages or filtering staff.
-- Optimistic updates for create, update, and delete improve perceived speed and reduce flicker.
+- Full CRUD store mirrors backend API, includes debounced search + cache for performance.
+- Role/class logic maintained on frontend to support optimistic UI and sensible defaults.
 Structure:
-- fetchStaff / fetchStaffDebounced: paginated fetching with caching.
-- fetchStaffById: fetch individual staff with store sync.
-- createStaff / updateStaff / deleteStaff: full CRUD operations.
+- State: staffList, selectedStaff, pagination, search, loading, error, cache
+- Actions: fetchStaff, fetchStaffDebounced, fetchStaffById, createStaff, updateStaff, deleteStaff
 Implementation guidance:
-- Integrate into staff management pages, connect search input to setSearch, use totalPages() for pagination controls.
+- Wire search input to setSearch, table/list to staffList, pagination to page/perPage, modals to create/update/delete actions.
 Scalability insight:
-- Store can extend to include role or department filters, and support bulk actions without changing core structure.
+- Extend filters (department, hireDate, salary range), batch operations, or offline caching without changing core store logic.
 */

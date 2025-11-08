@@ -1,15 +1,10 @@
 // app/layout.tsx
-// Purpose: Global site layout with conditional footer, glass background, and global utilities.
-
 import "./globals.css";
 import { ReactNode } from "react";
-import { Inter } from "next/font/google";
 import { Toaster } from "sonner";
 import AppBackground from "./components/AppBackground";
-import FooterWrapper from "@/app/components/home/FooterWrapper.tsx";
+import FooterWrapper from "@/app/components/home/FooterWrapper";
 import BackToTop from "./components/home/BackToTop";
-
-const inter = Inter({ subsets: ["latin"] });
 
 export const metadata = {
   title: "Ford School Management",
@@ -23,22 +18,17 @@ interface RootLayoutProps {
 export default function RootLayout({ children }: RootLayoutProps) {
   return (
     <html lang="en" className="h-full">
-      <body
-        className={`${inter.className} h-full text-neutral-dark overflow-x-hidden`}
-      >
-        {/* Glass-like translucent background */}
-        <AppBackground>
-          {/* Main content area */}
-          {children}
-        </AppBackground>
-
-        {/* Conditionally rendered footer */}
+      <head>
+        {/* Google Fonts: Lexend */}
+        <link
+          rel="stylesheet"
+          href="https://fonts.googleapis.com/css2?family=Lexend:wght@400;700&display=swap"
+        />
+      </head>
+      <body className="font-sans h-full text-neutral-dark overflow-x-hidden">
+        <AppBackground>{children}</AppBackground>
         <FooterWrapper />
-
-        {/* Scroll helper */}
         <BackToTop />
-
-        {/* Global notifications */}
         <Toaster position="top-right" richColors closeButton duration={4000} />
       </body>
     </html>

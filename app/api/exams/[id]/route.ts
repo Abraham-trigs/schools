@@ -4,7 +4,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { z } from "zod";
-import { cookieUser } from "@/lib/cookieUser.ts";
+import { cookieUser } from "@lib/cookieUser.ts";
 import { Role } from "@prisma/client";
 
 // Zod schema for updating exams

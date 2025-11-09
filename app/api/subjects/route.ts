@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
-import { cookieUser } from "@/lib/cookieUser";
+import { prisma } from "@lib/cookieUser.ts";
+import { cookieUser } from "@lib/cookieUser.ts";
 import { z } from "zod";
 
 // ------------------------- Schema -------------------------

@@ -3,8 +3,8 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { signJwt, verifyJwt } from "@/lib/jwt";
-import { COOKIE_NAME, COOKIE_OPTIONS } from "@/lib/cookies";
-import { cookieUser } from "@/lib/cookieUser.ts";
+import { COOKIE_NAME, COOKIE_OPTIONS } from "@lib/cookies.ts";
+import { cookieUser } from "@lib/cookieUser.ts";
 
 export async function POST(req: NextRequest) {
   try {

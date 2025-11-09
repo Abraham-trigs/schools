@@ -5,8 +5,9 @@
 
 import { create } from "zustand";
 import { devtools } from "zustand/middleware";
-import { useClassesStore } from "./useClassesStore";
-import { useStaffStore } from "./useStaffStore";
+
+import { useClassesStore } from "./useClassesStore.ts";
+import { useStaffStore } from "./useStaffStore.ts";
 
 export type Subject = {
   id: string;

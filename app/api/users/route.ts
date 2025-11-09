@@ -5,12 +5,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import bcrypt from "bcryptjs";
 import { z } from "zod";
-import { cookieUser } from "@/lib/cookieUser";
+import { cookieUser } from "@lib/cookieUser.ts";
 import {
-  Role,
   inferRoleFromPosition,
   inferDepartmentFromPosition,
-} from "@/lib/api/constants/roleInference";
+} from "@lib/api/constants/roleInference.ts";
+import { Role } from "@lib/db.ts";
 
 // ------------------------- Schemas -------------------------
 const userCreateSchema = z.object({

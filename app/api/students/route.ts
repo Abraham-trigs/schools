@@ -4,9 +4,9 @@
 "use server";
 
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { prisma } from "@lib/prisma.ts";
 import { z } from "zod";
-import { cookieUser } from "@/lib/cookieUser";
+import { cookieUser } from "@lib/cookieUser.ts";
 import bcrypt from "bcryptjs";
 import { Role } from "@prisma/client";
 

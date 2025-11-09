@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
-import { cookieUser } from "@/lib/cookieUser";
+import { prisma } from "@lib/prisma.ts";
+import { cookieUser } from "@lib/cookieUser.ts";
 import { z } from "zod";
 
 const subjectSchema = z.object({

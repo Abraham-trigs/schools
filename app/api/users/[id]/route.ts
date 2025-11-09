@@ -2,11 +2,12 @@
 // Purpose: User item API – retrieve, update, delete by ID with school scoping
 
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { prisma } from "@lib/prisma.ts";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
-import { cookieUser } from "@/lib/cookieUser";
-import { inferRoleFromPosition, inferDepartmentFromPosition, Role } from "@/lib/api/constants/roleInference";
+import { cookieUser } from "@lib/cookieUser.ts";
+import { Role } from "@lib/db.ts";
+import { inferRoleFromPosition, inferDepartmentFromPosition } from "@lib/api/constants/roleInference.ts";
 
 const userUpdateSchema = z.object({
   name: z.string().min(1).optional(),

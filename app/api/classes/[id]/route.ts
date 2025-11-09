@@ -2,8 +2,8 @@
 // Purpose: Handle single class operations (fetch, update, delete) with nested students and attendance, role-based auth, and full validation.
 
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
-import { cookieUser } from "@/lib/cookieUser";
+import { prisma } from "@lib/prisma.ts";
+import { cookieUser } from "@lib/cookieUser.ts";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
 import { Role } from "@prisma/client";

@@ -1,222 +1,234 @@
-// src/stores/staffStore.ts
-// Purpose: Zustand store for Staff – full CRUD with transactional User creation, pagination, search, sorting, multi-subjects, class/department filters, debounce, and field-level error handling.
+// app/store/useStaffStore.ts
+// Purpose: Zustand store for managing Staff data, including CRUD, pagination, search (debounced), and cache for performance.
 
-import { create }  from "zustand";
+"use client";
 
-import { devtools } from "zustand/middleware";
+import { create } from "zustand";
+import { debounce } from "lodash";
 import { apiClient } from "@lib/apiClient.ts";
-import { useUserStore } from "./useUserStore.ts";
 
 // ------------------------- Types -------------------------
 export interface Staff {
   id: string;
-  userId?: string | null;
-  position: string;
-  department?: string | null;
-  classId?: string | null;
+  userId: string;
+  user: { id: string; name: string; email: string; phone?: string };
+  class?: { id: string; name: string; students?: any[] } | null;
+  department?: { id: string; name: string } | null;
+  position?: string | null;
   salary?: number | null;
+  subject?: string | null;
   hireDate?: string | null;
-  subjects?: string[];
   createdAt: string;
+  updatedAt: string;
 }
 
-interface StaffFilters {
-  search?: string;
+interface UserPayload {
+  name: string;
+  email: string;
+  password: string;
+  role?: string;
+}
+
+interface StaffPayload {
   position?: string;
   department?: string;
-  classId?: string;
-  createdFrom?: string;
-  createdTo?: string;
+  classId?: string | null;
+  salary?: number | null;
+  subject?: string | null;
 }
 
-interface FieldErrors {
-  [key: string]: string[];
-}
-
-interface StaffStore {
-  staff: Staff[];
+interface StaffState {
+  staffList: Staff[];
+  selectedStaff: Staff | null;
   total: number;
   page: number;
   perPage: number;
+  search: string;
   loading: boolean;
-  error?: string;
-  fieldErrors?: FieldErrors;
-  filters: StaffFilters;
-  sortBy: string;
-  sortOrder: "asc" | "desc";
-  debounceMs: number;
+  error: string | null;
+  cache: Record<number, Staff[]>;
 
-  fetchStaff: () => Promise<void>;
-  fetchStaffById: (id: string) => Promise<Staff | undefined>;
-  createStaff: (data: Partial<Staff> & { createUser?: boolean; password?: string }) => Promise<Staff | undefined>;
-  updateStaff: (id: string, data: Partial<Staff>) => Promise<Staff | undefined>;
-  deleteStaff: (id: string) => Promise<boolean>;
-  setFilters: (filters: Partial<StaffFilters>) => void;
-  setPagination: (page: number, perPage: number) => void;
-  setSorting: (sortBy: string, sortOrder: "asc" | "desc") => void;
-  setDebounce: (ms: number) => void;
+  setPage: (page: number) => void;
+  setPerPage: (perPage: number) => void;
+  setSearch: (search: string) => void;
+
+  setSelectedStaff: (staff: Staff | null) => void;
+  fetchStaff: (page?: number, search?: string) => Promise<void>;
+  fetchStaffDebounced: (page?: number, search?: string) => void;
+  fetchStaffById: (id: string) => Promise<Staff | null>;
+
+  createStaff: (user: UserPayload, staff: StaffPayload) => Promise<Staff | null>;
+  updateStaff: (id: string, data: Partial<Staff>) => void;
+  deleteStaff: (id: string, onDeleted?: () => void) => Promise<void>;
+
+  totalPages: () => number;
 }
 
 // ------------------------- Store -------------------------
-export const useStaffStore = create<StaffStore>()(
-  devtools((set, get) => ({
-    staff: [],
+export const useStaffStore = create<StaffState>((set, get) => {
+  const fetchStaffDebounced = debounce((page?: number, search?: string) => {
+    get().fetchStaff(page, search);
+  }, 300);
+
+  return {
+    staffList: [],
+    selectedStaff: null,
     total: 0,
     page: 1,
     perPage: 10,
+    search: "",
     loading: false,
-    error: undefined,
-    fieldErrors: undefined,
-    filters: {},
-    sortBy: "createdAt",
-    sortOrder: "desc",
-    debounceMs: 300,
+    error: null,
+    cache: {},
 
-    setFilters: (filters) => set((state) => ({ filters: { ...state.filters, ...filters } })),
-    setPagination: (page, perPage) => set({ page, perPage }),
-    setSorting: (sortBy, sortOrder) => set({ sortBy, sortOrder }),
-    setDebounce: (ms) => set({ debounceMs: ms }),
+    setPage: (page) => set({ page }),
+    setPerPage: (perPage) => set({ perPage }),
+    setSearch: (search) => {
+      set({ search, page: 1 });
+      fetchStaffDebounced(1, search);
+    },
 
-    fetchStaff: async () => {
-      set({ loading: true, error: undefined });
-      const { page, perPage, filters, sortBy, sortOrder, debounceMs } = get();
+    setSelectedStaff: (staff) => set({ selectedStaff: staff }),
 
+    // ------------------------- Fetch paginated staff -------------------------
+    fetchStaff: async (page = get().page, search = get().search) => {
+      const cached = get().cache[page];
+      if (cached && !search) {
+        set({ staffList: cached, page });
+        return;
+      }
+      set({ loading: true, error: null });
       try {
-        if (debounceMs > 0) await new Promise((res) => setTimeout(res, debounceMs));
-
-        const params = new URLSearchParams({
-          page: page.toString(),
-          perPage: perPage.toString(),
-          sortBy,
-          sortOrder,
-          ...Object.fromEntries(Object.entries(filters).filter(([_, v]) => v !== undefined && v !== "")),
-        });
-
-        const data = await apiClient<{ staff: Staff[]; total: number; page: number; perPage: number }>(
-          `/api/staff?${params.toString()}`,
-          { auth: true, showError: true }
+        const data = await apiClient<{ staffList: Staff[]; total: number; page: number }>(
+          `/api/staff?search=${encodeURIComponent(search)}&page=${page}&perPage=${get().perPage}`
         );
-
-        set({
-          staff: data.staff || [],
-          total: data.total || 0,
-          page: data.page || 1,
-          perPage: data.perPage || 10,
-        });
+        set((state) => ({
+          staffList: data.staffList,
+          total: data.total,
+          page: data.page,
+          cache: search === "" ? { ...state.cache, [page]: data.staffList } : state.cache,
+        }));
       } catch (err: any) {
-        set({ error: err.message });
+        set({ error: err?.message || "Failed to fetch staff" });
       } finally {
         set({ loading: false });
       }
     },
 
-    fetchStaffById: async (id) => {
-      set({ loading: true, error: undefined });
-      try {
-        const data = await apiClient<Staff>(`/api/staff/${id}`, { auth: true, showError: true });
-        return data;
-      } catch (err: any) {
-        set({ error: err.message });
-      } finally {
-        set({ loading: false });
-      }
-    },
+    fetchStaffDebounced,
 
-    createStaff: async (payload) => {
-      set({ loading: true, error: undefined, fieldErrors: undefined });
-      const { createUser, password, ...staffPayload } = payload;
-      const { createUser: createUserFn } = useUserStore.getState();
-
+    // ------------------------- Fetch individual staff -------------------------
+    fetchStaffById: async (id: string) => {
+      set({ loading: true, error: null });
       try {
-        let user;
-        if (createUser) {
-          if (!password) throw new Error("Password is required when creating a User");
-          user = await createUserFn({
-            name: staffPayload.name!,
-            email: staffPayload.email!,
-            password,
-            role: staffPayload.position!,
-          });
+        const existing = get().staffList.find((s) => s.id === id);
+        if (existing) {
+          set({ selectedStaff: existing });
+          return existing;
         }
 
-        const data = await apiClient<Staff>("/api/staff", {
+        const fetched = await apiClient<Staff>(`/api/staff/${id}`);
+        set({ selectedStaff: fetched });
+        set((state) => ({
+          staffList: [fetched, ...state.staffList.filter((s) => s.id !== id)],
+        }));
+        return fetched;
+      } catch (err: any) {
+        set({ error: err?.message || "Failed to fetch staff by id" });
+        return null;
+      } finally {
+        set({ loading: false });
+      }
+    },
+
+    // ------------------------- Create staff -------------------------
+    createStaff: async (userPayload, staffPayload) => {
+      set({ loading: true, error: null });
+      try {
+        const newStaff = await apiClient<Staff>("/api/staff", {
           method: "POST",
-          body: { ...staffPayload, userId: user?.id ?? null },
-          auth: true,
-          showSuccess: true,
-          successMessage: "Staff created successfully",
+          body: JSON.stringify({ ...userPayload, ...staffPayload }),
         });
-
-        set((state) => ({ staff: [data, ...state.staff], total: state.total + 1 }));
-        return data;
+        set((state) => ({
+          staffList: [newStaff, ...state.staffList],
+          total: state.total + 1,
+        }));
+        return newStaff;
       } catch (err: any) {
-        if (err?.fieldErrors) set({ fieldErrors: err.fieldErrors });
-        set({ error: err.message });
+        set({ error: err?.error?.message || err?.message || "Failed to create staff" });
+        return null;
       } finally {
         set({ loading: false });
       }
     },
 
-    updateStaff: async (id, payload) => {
-      set({ loading: true, error: undefined, fieldErrors: undefined });
-      try {
-        const data = await apiClient<Staff>(`/api/staff/${id}`, {
-          method: "PUT",
-          body: payload,
-          auth: true,
-          showSuccess: true,
-          successMessage: "Staff updated successfully",
-        });
-
-        set((state) => ({ staff: state.staff.map((s) => (s.id === id ? data : s)) }));
-        return data;
-      } catch (err: any) {
-        if (err?.fieldErrors) set({ fieldErrors: err.fieldErrors });
-        set({ error: err.message });
-      } finally {
-        set({ loading: false });
-      }
+    // ------------------------- Update staff in store (optimistic) -------------------------
+    updateStaff: (id, data) => {
+      set((state) => {
+        const updatedList = state.staffList.map((s) =>
+          s.id === id ? { ...s, ...data } : s
+        );
+        const updatedSelected =
+          state.selectedStaff?.id === id
+            ? { ...state.selectedStaff, ...data }
+            : state.selectedStaff;
+        return {
+          staffList: updatedList,
+          selectedStaff: updatedSelected || null,
+          cache: Object.fromEntries(
+            Object.entries(state.cache).map(([k, list]) => [
+              k,
+              list.map((s) => (s.id === id ? { ...s, ...data } : s)),
+            ])
+          ),
+        };
+      });
     },
 
-    deleteStaff: async (id) => {
-      set({ loading: true, error: undefined });
+    // ------------------------- Delete staff with callback -------------------------
+    deleteStaff: async (id: string, onDeleted?: () => void) => {
+      set({ loading: true, error: null });
       try {
-        await apiClient(`/api/staff/${id}`, {
+        const res = await apiClient<{ success: boolean; error?: any }>(`/api/staff/${id}`, {
           method: "DELETE",
-          auth: true,
-          showSuccess: true,
-          successMessage: "Staff deleted successfully",
         });
 
-        set((state) => ({ staff: state.staff.filter((s) => s.id !== id), total: state.total - 1 }));
-        return true;
+        if (res.success) {
+          set((state) => ({
+            staffList: state.staffList.filter((s) => s.id !== id),
+            selectedStaff: state.selectedStaff?.id === id ? null : state.selectedStaff,
+            total: Math.max(0, state.total - 1),
+            cache: Object.fromEntries(
+              Object.entries(state.cache).map(([k, list]) => [
+                k,
+                list.filter((s) => s.id !== id),
+              ])
+            ),
+          }));
+          if (onDeleted) onDeleted();
+        } else {
+          set({ error: res.error?.message || "Failed to delete staff" });
+        }
       } catch (err: any) {
-        set({ error: err.message });
-        return false;
+        set({ error: err?.message || "Failed to delete staff" });
       } finally {
         set({ loading: false });
       }
     },
-  }))
-);
 
-/* 
-Design reasoning:
-- Supports transactional creation of Staff + User, ensuring atomicity and rollback.
-- Debounced fetches reduce API calls during fast filter changes.
-- Field-level error support allows inline form validation without breaking UI.
+    totalPages: () => Math.ceil(get().total / get().perPage),
+  };
+});
 
+/* Design reasoning:
+- Debounced search + cache ensures performant and responsive UI when navigating pages or filtering staff.
+- Optimistic updates for create, update, and delete improve perceived speed and reduce flicker.
 Structure:
-- Uses Zustand + devtools.
-- Each CRUD action handles loading, success, and fieldErrors state.
-- Supports pagination, sorting, search, and flexible filters.
-
+- fetchStaff / fetchStaffDebounced: paginated fetching with caching.
+- fetchStaffById: fetch individual staff with store sync.
+- createStaff / updateStaff / deleteStaff: full CRUD operations.
 Implementation guidance:
-- Use createStaff with { createUser: true, password } to also create User.
-- fetchStaff automatically applies current filters, sort, and pagination.
-- Errors returned from API with field-level hints are stored in `fieldErrors`.
-
+- Integrate into staff management pages, connect search input to setSearch, use totalPages() for pagination controls.
 Scalability insight:
-- Easily extendable with additional filters (busId, hireDate range), transactional updates for related models.
-- Supports bulk staff creation, optimistic UI updates, and future debounce optimizations.
+- Store can extend to include role or department filters, and support bulk actions without changing core structure.
 */

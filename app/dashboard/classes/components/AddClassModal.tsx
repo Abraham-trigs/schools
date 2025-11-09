@@ -4,7 +4,7 @@ import { useState } from "react";
 import clsx from "clsx";
 import { z } from "zod";
 import { toast } from "sonner";
-import { useClassesStore } from "@/app/store/useClassesStore.ts";
+import { useClassesStore } from "@/store/useClassesStore.ts";
 
 interface AddClassModalProps {
   isOpen: boolean;

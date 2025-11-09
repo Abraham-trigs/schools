@@ -11,8 +11,8 @@ import {
   DialogTitle,
 } from "@headlessui/react";
 import clsx from "clsx";
-import { useClassesStore } from "@/app/store/useClassesStore";
-import { useStudentStore } from "@/app/store/useStudentStore";
+import { useClassesStore } from "@/store/useClassesStore.ts";
+import { useStudentStore } from "@/store/useStudentStore.ts";
 
 interface AddStudentModalProps {
   isOpen: boolean;

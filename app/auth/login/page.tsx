@@ -1,6 +1,9 @@
+// app/auth/login/page.tsx
+// Purpose: Login page that redirects to dashboard if already authenticated
+
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import axios from "axios";
 import clsx from "clsx";
 import Image from "next/image";
@@ -9,16 +12,25 @@ import { useAuthStore } from "@/store/useAuthStore.ts";
 
 export default function LoginPage() {
   const router = useRouter();
-  const { setUser } = useAuthStore();
+  const { user, fetchUser, setUser, loading } = useAuthStore();
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [loading, setLoading] = useState(false);
+  const [localLoading, setLocalLoading] = useState(false);
   const [error, setError] = useState("");
+
+  // Redirect if already logged in
+  useEffect(() => {
+    if (user) {
+      router.replace("/dashboard");
+    } else if (user === undefined) {
+      fetchUser().catch(() => {});
+    }
+  }, [user, fetchUser, router]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setLoading(true);
+    setLocalLoading(true);
     setError("");
 
     try {
@@ -36,13 +48,12 @@ export default function LoginPage() {
     } catch (err: any) {
       setError(err?.response?.data?.message || "Login failed");
     } finally {
-      setLoading(false);
+      setLocalLoading(false);
     }
   };
 
   return (
-    <div className="relative flex items-center justify-center min-h-screen ">
-      {/* Background Image */}
+    <div className="relative flex items-center justify-center min-h-screen">
       <Image
         src="/main-4.webp"
         alt="Ford School"
@@ -52,7 +63,6 @@ export default function LoginPage() {
       />
       <div className="absolute inset-0 -z-0"></div>
 
-      {/* Login Form */}
       <div className="relative w-full max-w-md p-8 bg-ford-card rounded-lg shadow-2xs z-10">
         <h1 className="text-3xl font-bold text-center text-white mb-6">
           Ford School
@@ -83,15 +93,15 @@ export default function LoginPage() {
           />
           <button
             type="submit"
-            disabled={loading}
+            disabled={localLoading || loading}
             className={clsx(
               "p-2 rounded text-white font-semibold transition-colors",
-              loading
+              localLoading || loading
                 ? "bg-ford-secondary opacity-70 cursor-not-allowed"
                 : "bg-ford-primary hover:bg-ford-secondary"
             )}
           >
-            {loading ? "Logging in..." : "Login"}
+            {localLoading || loading ? "Logging in..." : "Login"}
           </button>
         </form>
 
@@ -102,3 +112,22 @@ export default function LoginPage() {
     </div>
   );
 }
+
+/*
+Design reasoning:
+- Redirects already-authenticated users immediately to dashboard.
+- Uses store fetchUser to hydrate auth state if undefined.
+- Local loading separates UI state from global auth loading.
+
+Structure:
+- useEffect checks user on mount and redirects.
+- handleSubmit manages login and updates store.
+- Login form with inline validation and loading states.
+
+Implementation guidance:
+- Drop into /app/auth/login/page.tsx
+- Ensure useAuthStore has fetchUser implemented with fetchAttempted logic.
+
+Scalability insight:
+- Can extend to support role-based redirects or "remember me" functionality without breaking UX.
+*/

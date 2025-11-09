@@ -5,8 +5,8 @@
 
 import { create } from "zustand";
 import { debounce } from "lodash";
-import { apiClient } from "@/lib/apiClient";
-import { notify } from "@/lib/helpers/notifications";
+import { apiClient } from "@lib/apiClient.ts";
+import { notify } from "@lib/helpers/notifications.ts";
 import { useClassesStore } from "./useClassesStore";
 
 /**

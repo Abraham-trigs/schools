@@ -2,9 +2,9 @@
 // Purpose: RESTful API for managing classes with pagination, search, sorting, nested students, attendance, and role-based security.
 
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { prisma } from "@lib/prisma.ts";
 import { z } from "zod";
-import { cookieUser } from "@/lib/cookieUser";
+import { cookieUser } from "@lib/cookieUser.ts";
 import { Role } from "@prisma/client";
 
 // ------------------------- Schemas -------------------------

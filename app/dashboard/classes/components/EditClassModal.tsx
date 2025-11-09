@@ -4,8 +4,8 @@
 "use client";
 
 import { useState, useEffect, useRef, KeyboardEvent } from "react";
-import { notify } from "@/lib/helpers/notifications";
-import { useClassesStore } from "@/app/store/useClassesStore";
+import { notify } from "@lib/helpers/notifications.ts";
+import { useClassesStore } from "@/store/useClassesStore.ts";
 
 interface EditClassModalProps {
   isOpen: boolean;

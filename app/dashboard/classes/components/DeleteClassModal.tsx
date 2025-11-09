@@ -2,7 +2,7 @@
 "use client";
 
 import { useState, useRef, useEffect, KeyboardEvent } from "react";
-import { useClassesStore } from "@/app/store/useClassesStore.ts";
+import { useClassesStore } from "@/store/useClassesStore.ts";
 
 interface DeleteClassModalProps {
   id: string;

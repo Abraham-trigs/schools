@@ -7,8 +7,10 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Loader2, Plus } from "lucide-react";
 import AddStudentModal from "./components/AddStudentModal.tsx";
-import { useUserStore } from "@/app/store/useUserStore.ts";
-import { useStudentStore, StudentDetail } from "@/app/store/useStudentStore";
+
+import { useUserStore } from "@/store/useUserStore.ts";
+
+import { useStudentStore, StudentDetail } from "@/store/useStudentStore.ts";
 
 export default function StudentsPage() {
   const [isModalOpen, setIsModalOpen] = useState(false);

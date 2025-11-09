@@ -10,7 +10,7 @@ import {
   DialogTitle,
 } from "@headlessui/react";
 import { useEffect, useRef, useState } from "react";
-import { useStudentStore } from "@/app/store/useStudentStore.ts";
+import { useStudentStore } from "@/store/useStudentStore.ts";
 import { useRouter } from "next/navigation";
 
 // ---------------------------

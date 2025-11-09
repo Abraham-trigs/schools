@@ -4,12 +4,12 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useClassesStore } from "@/app/store/useClassesStore.ts";
-import AddClassModal from "./components/AddClassModal";
-import EditClassModal from "./components/EditClassModal";
-import DeleteClassModal from "./components/DeleteClassModal";
-import StudentsModal from "./components/StudentsModal";
-import StudentsPerClassChart from "./components/StudentsPerClassChart";
+import { useClassesStore } from "@/store/useClassesStore.ts";
+import AddClassModal from "./components/AddClassModal.tsx";
+import EditClassModal from "./components/EditClassModal.tsx";
+import DeleteClassModal from "./components/DeleteClassModal.tsx";
+import StudentsModal from "./components/StudentsModal.tsx";
+import StudentsPerClassChart from "./components/StudentsPerClassChart.tsx";
 
 export default function ClassesPage() {
   const {

@@ -55,7 +55,7 @@ type SubjectsStore = {
   reset: () => void;
 };
 
-export const useSubjectsStore = create<SubjectsStore>()(
+export const useSubjectStore = create<SubjectsStore>()(
   devtools((set, get) => ({
     subjects: [],
     meta: { total: 0, page: 1, limit: 10 },

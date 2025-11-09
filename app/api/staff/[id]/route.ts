@@ -1,5 +1,5 @@
 // app/api/staff/[id]/route.ts
-// Purpose: Item route for staff management — get, update, delete staff safely with full validation and transactional updates.
+// Purpose: Item route for staff management — get, update, delete staff scoped by schoolId with full validation and transactional updates.
 
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
@@ -38,12 +38,12 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
   const user = await cookieUser(req);
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const staff = await prisma.staff.findUnique({
-    where: { id: params.id },
+  const staff = await prisma.staff.findFirst({
+    where: { id: params.id, schoolId: user.schoolId },
     include: { user: true, class: true, department: true, subjects: true },
   });
-  if (!staff) return NextResponse.json({ error: "Staff not found" }, { status: 404 });
 
+  if (!staff) return NextResponse.json({ error: "Staff not found" }, { status: 404 });
   return NextResponse.json(staff);
 }
 
@@ -57,7 +57,10 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     const data = staffUpdateSchema.parse(body);
 
     return await prisma.$transaction(async tx => {
-      const staff = await tx.staff.findUnique({ where: { id: params.id }, include: { user: true } });
+      const staff = await tx.staff.findFirst({
+        where: { id: params.id, schoolId: user.schoolId },
+        include: { user: true },
+      });
       if (!staff) return NextResponse.json({ error: "Staff not found" }, { status: 404 });
 
       // Update user
@@ -65,8 +68,8 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
         await tx.user.update({
           where: { id: staff.userId },
           data: {
-            name: data.name,
-            email: data.email,
+            name: data.name ?? undefined,
+            email: data.email ?? undefined,
             password: data.password ? await bcrypt.hash(data.password, 10) : undefined,
           },
         });
@@ -74,17 +77,21 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
 
       // Update staff fields
       const updatedStaff = await tx.staff.update({
-        where: { id: params.id },
+        where: { id: staff.id },
         data: {
           position: data.position ?? undefined,
           departmentId: data.departmentId ?? undefined,
           classId: data.classId ?? undefined,
           salary: data.salary ?? undefined,
           hireDate: data.hireDate ?? undefined,
-          subjects: data.subjects ? {
-            deleteMany: {}, // remove old subjects
-            create: data.subjects.map(name => ({ subject: { connectOrCreate: { where: { name }, create: { name } } } })),
-          } : undefined,
+          subjects: data.subjects
+            ? {
+                deleteMany: {}, // remove old subjects
+                create: data.subjects.map(name => ({
+                  subject: { connectOrCreate: { where: { name }, create: { name } } },
+                })),
+              }
+            : undefined,
         },
         include: { user: true, class: true, department: true, subjects: true },
       });
@@ -102,21 +109,21 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
   const user = await cookieUser(req);
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  return await prisma.$transaction(async tx => {
-    const staff = await tx.staff.findUnique({ where: { id: params.id } });
-    if (!staff) return NextResponse.json({ error: "Staff not found" }, { status: 404 });
-
-    await tx.user.delete({ where: { id: staff.userId } });
-    await tx.staff.delete({ where: { id: params.id } });
-
-    return NextResponse.json({ message: "Staff deleted successfully" });
+  const deleted = await prisma.staff.deleteMany({
+    where: { id: params.id, schoolId: user.schoolId },
   });
+
+  if (deleted.count === 0) return NextResponse.json({ error: "Staff not found" }, { status: 404 });
+
+  return NextResponse.json({ message: "Staff deleted successfully" });
 }
 
 /* 
-Design reasoning → Structure → Implementation guidance → Scalability insight
-- Handles transactional updates for staff + user + subjects to maintain DB integrity.
-- GET fetches full staff info; PUT handles multi-subject updates safely; DELETE cleans up both user and staff.
-- Input validation via Zod ensures normalized types; transaction ensures atomic updates.
-- Supports future extensions (e.g., attendance, finances, additional relations) without altering core structure.
+Design reasoning → Ensures all staff operations are scoped by the requesting user's schoolId, preserving multi-tenant data safety. Uses transactions to maintain consistency between staff, user, and subjects. Validates and normalizes inputs for safe updates. 
+
+Structure → Exports GET, PUT, DELETE; GET fetches staff by schoolId, PUT updates staff+user+subjects in a transaction, DELETE removes staff safely.
+
+Implementation guidance → Drop into Next.js API folder. Replace existing route. Frontend should call endpoints with authenticated user cookie; PUT payload must match staffUpdateSchema.
+
+Scalability insight → Easy to extend with attendance, finances, or other relations; additional role-based access or multi-school support can be added without breaking existing logic.
 */

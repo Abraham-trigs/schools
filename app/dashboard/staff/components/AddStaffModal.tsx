@@ -1,31 +1,25 @@
-// app/dashboard/staff/components/AddStaffModal.tsx
-// Purpose: Modal form to create new staff; supports multi-subject selection, auto-infers role/department/class,
-//          posts via useStaffStore with optimistic UI updates and school scoping.
-
 "use client";
 
-import { useEffect } from "react";
-import {
-  Dialog,
-  DialogBackdrop,
-  DialogPanel,
-  DialogTitle,
-} from "@headlessui/react";
+// File: app/dashboard/staff/components/AddStaffModal.tsx
+// Purpose: Modal form to create new staff; supports dynamic fields for roles, multi-subject selection, validation, and integrates with useStaffStore.
+
+import React, { useEffect } from "react";
 import { useForm, Controller } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useStaffStore } from "@/app/store/useStaffStore";
 import { useClassesStore } from "@/app/store/useClassesStore";
 import { useSubjectsStore } from "@/app/store/subjectStore";
-import {
-  roleToDepartment,
-  roleRequiresClass,
-  positionRoleMap,
-  inferRoleFromPosition,
-} from "@/lib/api/constants/roleInference";
 import Select from "react-select";
+import {
+  inferRoleFromPosition,
+  roleRequiresClass,
+  rolesWithSubjects,
+  roleToDepartment,
+  positionRoleMap,
+} from "@/lib/api/constants/roleInference";
 
-// ---------------------- Schema ----------------------
+// ---------------------- Validation Schema ----------------------
 const staffSchema = z.object({
   name: z.string().min(1, "Name is required"),
   email: z.string().email("Invalid email"),
@@ -35,6 +29,7 @@ const staffSchema = z.object({
   salary: z.coerce.number().optional(),
   subjects: z.array(z.string()).optional(),
   classId: z.string().optional().nullable(),
+  hireDate: z.string().optional(),
 });
 
 type StaffFormValues = z.infer<typeof staffSchema>;
@@ -46,7 +41,7 @@ interface AddStaffModalProps {
 
 // ---------------------- Modal Component ----------------------
 export default function AddStaffModal({ isOpen, onClose }: AddStaffModalProps) {
-  const { createStaff, loading: isLoading } = useStaffStore();
+  const { createStaff, loading: isLoading, error } = useStaffStore();
   const { classes, fetchClasses } = useClassesStore();
   const { subjects, fetchSubjects } = useSubjectsStore();
 
@@ -68,12 +63,16 @@ export default function AddStaffModal({ isOpen, onClose }: AddStaffModalProps) {
       salary: undefined,
       subjects: [],
       classId: undefined,
+      hireDate: new Date().toISOString().slice(0, 10),
     },
   });
 
   const position = watch("position");
+  const role = position ? inferRoleFromPosition(position) : null;
+  const requiresClassField = role ? roleRequiresClass.includes(role) : false;
+  const showSubjects = role ? rolesWithSubjects.includes(role) : false;
 
-  // ---------------------- Fetch classes & subjects on modal open ----------------------
+  // ---------------------- Fetch classes & subjects ----------------------
   useEffect(() => {
     if (isOpen) {
       fetchClasses();
@@ -81,7 +80,7 @@ export default function AddStaffModal({ isOpen, onClose }: AddStaffModalProps) {
     }
   }, [isOpen, fetchClasses, fetchSubjects]);
 
-  // ---------------------- Auto-fill department based on role ----------------------
+  // ---------------------- Auto-fill department ----------------------
   useEffect(() => {
     if (position) {
       const inferredRole = inferRoleFromPosition(position);
@@ -91,35 +90,28 @@ export default function AddStaffModal({ isOpen, onClose }: AddStaffModalProps) {
     }
   }, [position, reset]);
 
-  const requiresClass = position
-    ? roleRequiresClass.includes(inferRoleFromPosition(position))
-    : false;
-
-  // ---------------------- Submit handler ----------------------
+  // ---------------------- Submit Handler ----------------------
   const onSubmit = async (data: StaffFormValues) => {
-    const role = inferRoleFromPosition(data.position);
+    try {
+      // Normalize payload before sending
+      const payload = {
+        ...data,
+        salary: data.salary ?? null,
+        classId: requiresClassField ? data.classId ?? null : null,
+        subjects: showSubjects ? data.subjects ?? [] : [],
+      };
 
-    const userPayload = {
-      name: data.name,
-      email: data.email,
-      password: data.password,
-      role,
-    };
+      await createStaff(payload);
 
-    const staffPayload = {
-      position: data.position,
-      department: data.department || roleToDepartment[role],
-      classId: requiresClass ? data.classId ?? null : null,
-      salary: data.salary ?? null,
-      subjects: data.subjects ?? [],
-    };
-
-    // Optimistic UI update via store
-    await createStaff(userPayload, staffPayload);
-
-    reset();
-    onClose();
+      // Reset form and close modal on success
+      reset();
+      onClose();
+    } catch (err) {
+      console.error("Failed to create staff:", err);
+    }
   };
+
+  if (!isOpen) return null;
 
   const positions = Object.keys(positionRoleMap);
   const subjectOptions = subjects.map((s) => ({
@@ -127,98 +119,99 @@ export default function AddStaffModal({ isOpen, onClose }: AddStaffModalProps) {
     label: s.name,
   }));
 
-  // ---------------------- Render ----------------------
   return (
-    <Dialog open={isOpen} onClose={onClose} className="relative z-50">
-      <DialogBackdrop className="fixed inset-0 bg-black/30" />
-      <div className="fixed inset-0 flex items-center justify-center p-4">
-        <DialogPanel className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-lg z-50">
-          <DialogTitle className="text-lg font-semibold mb-4">
-            Add New Staff
-          </DialogTitle>
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+      <div className="bg-white p-6 rounded-lg shadow-lg w-full max-w-lg">
+        <h2 className="text-xl font-bold mb-4">Add New Staff</h2>
 
-          <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-            {/* Name */}
-            <div>
-              <label className="block text-sm font-medium">Full Name</label>
-              <input
-                {...register("name")}
-                className="mt-1 w-full rounded-md border px-3 py-2"
-              />
-              {errors.name && (
-                <p className="text-sm text-red-500">{errors.name.message}</p>
-              )}
-            </div>
+        {error && <p className="text-red-500 mb-2">{error}</p>}
 
-            {/* Email */}
-            <div>
-              <label className="block text-sm font-medium">Email</label>
-              <input
-                {...register("email")}
-                className="mt-1 w-full rounded-md border px-3 py-2"
-              />
-              {errors.email && (
-                <p className="text-sm text-red-500">{errors.email.message}</p>
-              )}
-            </div>
+        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+          {/* Name */}
+          <div>
+            <label className="block text-sm font-medium">Full Name</label>
+            <input
+              {...register("name")}
+              className="mt-1 w-full border rounded px-2 py-1"
+            />
+            {errors.name && (
+              <p className="text-red-500 text-sm">{errors.name.message}</p>
+            )}
+          </div>
 
-            {/* Password */}
-            <div>
-              <label className="block text-sm font-medium">Password</label>
-              <input
-                type="password"
-                {...register("password")}
-                className="mt-1 w-full rounded-md border px-3 py-2"
-              />
-              {errors.password && (
-                <p className="text-sm text-red-500">
-                  {errors.password.message}
-                </p>
-              )}
-            </div>
+          {/* Email */}
+          <div>
+            <label className="block text-sm font-medium">Email</label>
+            <input
+              {...register("email")}
+              className="mt-1 w-full border rounded px-2 py-1"
+            />
+            {errors.email && (
+              <p className="text-red-500 text-sm">{errors.email.message}</p>
+            )}
+          </div>
 
-            {/* Position */}
+          {/* Password */}
+          <div>
+            <label className="block text-sm font-medium">Password</label>
+            <input
+              type="password"
+              {...register("password")}
+              className="mt-1 w-full border rounded px-2 py-1"
+            />
+            {errors.password && (
+              <p className="text-red-500 text-sm">{errors.password.message}</p>
+            )}
+          </div>
+
+          {/* Position */}
+          <div>
+            <label className="block text-sm font-medium">Position</label>
+            <select
+              {...register("position")}
+              className="mt-1 w-full border rounded px-2 py-1"
+            >
+              <option value="">Select position</option>
+              {positions.map((pos) => (
+                <option key={pos} value={pos}>
+                  {pos.replace(/_/g, " ")}
+                </option>
+              ))}
+            </select>
+            {errors.position && (
+              <p className="text-red-500 text-sm">{errors.position.message}</p>
+            )}
+          </div>
+
+          {/* Department */}
+          <div>
+            <label className="block text-sm font-medium">Department</label>
+            <input
+              {...register("department")}
+              className="mt-1 w-full border rounded px-2 py-1"
+            />
+          </div>
+
+          {/* Class */}
+          {requiresClassField && (
             <div>
-              <label className="block text-sm font-medium">Position</label>
+              <label className="block text-sm font-medium">Class</label>
               <select
-                {...register("position")}
-                className="mt-1 w-full rounded-md border px-3 py-2"
+                {...register("classId")}
+                className="mt-1 w-full border rounded px-2 py-1"
               >
-                <option value="">Select role</option>
-                {positions.map((pos) => (
-                  <option key={pos} value={pos}>
-                    {pos.replace(/_/g, " ")}
+                <option value="">Select class</option>
+                {classes.map((cls) => (
+                  <option key={cls.id} value={cls.id}>
+                    {cls.name}
                   </option>
                 ))}
               </select>
-              {errors.position && (
-                <p className="text-sm text-red-500">
-                  {errors.position.message}
-                </p>
-              )}
             </div>
+          )}
 
-            {/* Department */}
-            <div>
-              <label className="block text-sm font-medium">Department</label>
-              <input
-                {...register("department")}
-                className="mt-1 w-full rounded-md border px-3 py-2"
-              />
-            </div>
-
-            {/* Salary */}
-            <div>
-              <label className="block text-sm font-medium">Salary</label>
-              <input
-                type="number"
-                step="0.01"
-                {...register("salary")}
-                className="mt-1 w-full rounded-md border px-3 py-2"
-              />
-            </div>
-
-            {/* Subjects */}
+          {/* Subjects */}
+          {showSubjects && (
             <div>
               <label className="block text-sm font-medium">Subjects</label>
               <Controller
@@ -232,69 +225,67 @@ export default function AddStaffModal({ isOpen, onClose }: AddStaffModalProps) {
                       value?.includes(s.value)
                     )}
                     onChange={(selected) =>
-                      onChange(selected.map((s) => s.value))
+                      onChange(selected.map((s: { value: string }) => s.value))
                     }
                   />
                 )}
               />
             </div>
+          )}
 
-            {/* Class (conditionally rendered) */}
-            {requiresClass && (
-              <div>
-                <label className="block text-sm font-medium">Class</label>
-                <select
-                  {...register("classId")}
-                  className="mt-1 w-full rounded-md border px-3 py-2"
-                >
-                  <option value="">Select class</option>
-                  {classes.map((cls) => (
-                    <option key={cls.id} value={cls.id}>
-                      {cls.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            )}
+          {/* Salary */}
+          <div>
+            <label className="block text-sm font-medium">Salary</label>
+            <input
+              type="number"
+              step="0.01"
+              {...register("salary")}
+              className="mt-1 w-full border rounded px-2 py-1"
+            />
+          </div>
 
-            {/* Buttons */}
-            <div className="flex justify-end gap-3 pt-4">
-              <button
-                type="button"
-                onClick={onClose}
-                className="rounded-md border px-4 py-2"
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                disabled={isLoading}
-                className="rounded-md bg-blue-600 px-4 py-2 text-white hover:bg-blue-700 disabled:opacity-50"
-              >
-                {isLoading ? "Saving..." : "Create Staff"}
-              </button>
-            </div>
-          </form>
-        </DialogPanel>
+          {/* Hire Date */}
+          <div>
+            <label className="block text-sm font-medium">Hire Date</label>
+            <input
+              type="date"
+              {...register("hireDate")}
+              className="mt-1 w-full border rounded px-2 py-1"
+            />
+          </div>
+
+          {/* Buttons */}
+          <div className="flex justify-end gap-3 pt-4">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2 border rounded"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={isLoading}
+              className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
+            >
+              {isLoading ? "Saving..." : "Create Staff"}
+            </button>
+          </div>
+        </form>
       </div>
-    </Dialog>
+    </div>
   );
 }
 
-/* Design reasoning:
-- Uses Zustand stores for subjects, classes, and staff to maintain consistent dashboard state.
-- Multi-select for subjects improves UX for teachers handling multiple subjects.
-- Auto-fills department and conditionally renders class dropdown based on position to prevent errors.
+/*
+Design reasoning → Modal provides a clean UX for adding staff. Fields dynamically show based on role. Subjects/class appear only for relevant positions. Optimistic UI improves performance.
 
-Structure:
-- AddStaffModal component with react-hook-form + Zod validation
-- Controller integration for multi-select subjects
-- Resets form on close or successful submit
+Structure → React Hook Form + Zod for validation. Conditional rendering for dynamic fields. Integrates directly with useStaffStore for CRUD.
 
-Implementation guidance:
-- Ensure `fetchSubjects()` and `fetchClasses()` are called when modal opens.
-- Connect form to `useStaffStore.createStaff` for optimistic UI updates.
+Implementation guidance → Submit normalized payload. Reset form and close modal on success. Inline validation feedback improves usability.
 
-Scalability insight:
-- Multi-select pattern allows extending to other relational fields (e.g., skills, certifications) without refactoring modal logic.
+Scalability insight → Supports additional roles, fields, or multi-select subjects. Can be extended for editing staff with minimal changes.
+
+Example usage:
+<AddStaffModal isOpen={isModalOpen} onClose={() => setModalOpen(false)} />
 */

@@ -1,126 +1,143 @@
-// app/api/staff/[id]/route.ts
-// Purpose: Item route for Staff - get, update (PATCH), delete with transaction-safe updates and role checks
-
-"use server";
+// app/api/staff/route.ts
+// Purpose: List and create staff scoped to authenticated user's school with pagination, search, filtering, role & department inference, and multi-subject support.
 
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { cookieUser } from "@/lib/cookieUser";
-import { Role } from "@prisma/client";
 import { z } from "zod";
+import { cookieUser } from "@/lib/cookieUser";
+import {
+  inferRoleFromPosition,
+  inferDepartmentFromPosition,
+  requiresClass,
+} from "@/lib/api/constants/roleInference.ts";
 import bcrypt from "bcryptjs";
 
-const staffUpdateSchema = z.object({
-  name: z.string().optional(),
-  email: z.string().email().optional(),
-  password: z.string().min(6).optional(),
-  position: z.string().optional(),
-  departmentId: z.string().nullable().optional(),
-  classId: z.string().nullable().optional(),
-  salary: z.preprocess(
-    (val) => (val === "" ? null : Number(val)),
-    z.number().nullable().optional()
-  ),
-  hireDate: z.preprocess(
-    (val) => (val ? new Date(val as string) : undefined),
-    z.date().optional()
-  ),
+// ------------------------- Types -------------------------
+interface StaffCreateRequest {
+  name: string;
+  email: string;
+  position?: string | null;
+  classId?: string | null;
+  salary?: number | null;
+  subjects?: string[]; // multiple subjects
+  hireDate?: Date | null;
+  password: string;
+}
+
+// ------------------------- Schemas -------------------------
+const staffSchema = z.object({
+  name: z.string().min(1, "Name is required"),
+  email: z.string().email("Invalid email"),
+  position: z.string().optional().nullable(),
+  classId: z.string().optional().nullable(),
+  salary: z
+    .preprocess((val) => (val === "" ? null : Number(val)), z.number().nullable().optional()),
   subjects: z.array(z.string()).optional(),
+  hireDate: z
+    .preprocess((val) => (val ? new Date(val as string) : null), z.date().nullable().optional()),
+  password: z.string().min(6, "Password must be at least 6 characters"),
 });
 
-// ------------------------- Helper -------------------------
-async function resolveParams({ params }: { params: { id: string } }) {
-  return params.id;
-}
-
-// ------------------------- GET staff by id -------------------------
-export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
-  const staffId = await resolveParams({ params });
+// ------------------------- GET: List staff -------------------------
+export async function GET(req: NextRequest) {
   const user = await cookieUser(req);
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const staff = await prisma.staff.findFirst({
-    where: { id: staffId, schoolId: user.schoolId },
-    include: { user: true, class: true, department: true, subjects: true, attendances: true, financesRecorded: true },
-  });
+  const url = new URL(req.url);
+  const search = url.searchParams.get("search") || "";
+  const role = url.searchParams.get("role");
+  const departmentId = url.searchParams.get("departmentId");
+  const page = Number(url.searchParams.get("page") || 1);
+  const perPage = Number(url.searchParams.get("perPage") || 10);
 
-  if (!staff) return NextResponse.json({ error: "Staff not found" }, { status: 404 });
-  return NextResponse.json({ data: staff });
+  const where: any = { user: { schoolId: user.school.id } };
+  if (search) {
+    where.OR = [
+      { user: { name: { contains: search, mode: "insensitive" } } },
+      { user: { email: { contains: search, mode: "insensitive" } } },
+    ];
+  }
+  if (role) where.user.role = role;
+  if (departmentId) where.departmentId = departmentId;
+
+  const [staffList, total] = await prisma.$transaction([
+    prisma.staff.findMany({
+      where,
+      include: { user: true, class: true, department: true, subjects: true },
+      skip: (page - 1) * perPage,
+      take: perPage,
+      orderBy: { createdAt: "desc" },
+    }),
+    prisma.staff.count({ where }),
+  ]);
+
+  const totalPages = Math.ceil(total / perPage);
+  return NextResponse.json({ staffList, total, page, perPage, totalPages });
 }
 
-// ------------------------- PATCH: update staff -------------------------
-export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
-  const staffId = await resolveParams({ params });
+// ------------------------- POST: Create staff -------------------------
+export async function POST(req: NextRequest) {
   const user = await cookieUser(req);
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  if (![Role.ADMIN, Role.PRINCIPAL, Role.HR].includes(user.role))
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   try {
-    const body = await req.json();
-    const data = staffUpdateSchema.parse(body);
+    const body: StaffCreateRequest = await req.json();
+    const data = staffSchema.parse(body);
+
+    const role = inferRoleFromPosition(data.position);
+    const departmentName = inferDepartmentFromPosition(data.position);
+    const department = departmentName
+      ? await prisma.department.findUnique({ where: { name: departmentName } })
+      : null;
 
     return await prisma.$transaction(async (tx) => {
-      const staff = await tx.staff.findUnique({ where: { id: staffId } });
-      if (!staff) throw new Error("Staff not found during update");
+      const existingUser = await tx.user.findUnique({ where: { email: data.email } });
+      if (existingUser) return NextResponse.json({ error: "User with email exists" }, { status: 400 });
 
-      const userData: any = {};
-      if (data.name) userData.name = data.name;
-      if (data.email) userData.email = data.email;
-      if (data.password) userData.password = await bcrypt.hash(data.password, 10);
+      const hashedPassword = await bcrypt.hash(data.password, 10);
 
-      const staffData: any = {};
-      if (data.position) staffData.position = data.position;
-      if ("departmentId" in data) staffData.departmentId = data.departmentId;
-      if ("classId" in data) staffData.classId = data.classId;
-      if ("salary" in data) staffData.salary = data.salary;
-      if ("hireDate" in data) staffData.hireDate = data.hireDate;
-
-      if ("subjects" in data) {
-        staffData.subjects = {
-          set: data.subjects.map((id) => ({ id })),
-        };
-      }
-
-      if (Object.keys(userData).length > 0) {
-        await tx.user.update({ where: { id: staff.userId }, data: userData });
-      }
-
-      const updatedStaff = await tx.staff.update({
-        where: { id: staffId },
-        data: staffData,
-        include: { user: true, class: true, department: true, subjects: true, attendances: true, financesRecorded: true },
+      const newUser = await tx.user.create({
+        data: {
+          name: data.name,
+          email: data.email,
+          password: hashedPassword,
+          role,
+          schoolId: user.school.id,
+        },
       });
 
-      return NextResponse.json({ data: updatedStaff });
+      const newStaff = await tx.staff.create({
+        data: {
+          userId: newUser.id,
+          position: data.position || "Teacher",
+          departmentId: department?.id ?? null,
+          classId: requiresClass(data.position) ? data.classId : null,
+          salary: data.salary ?? null,
+          hireDate: data.hireDate ?? null,
+          subjects: data.subjects && data.subjects.length
+            ? { connect: data.subjects.map((id) => ({ id })) }
+            : undefined,
+        },
+        include: { user: true, class: true, department: true, subjects: true },
+      });
+
+      return NextResponse.json(newStaff, { status: 201 });
     });
   } catch (err: any) {
-    if (err instanceof z.ZodError) return NextResponse.json({ error: err.flatten() }, { status: 400 });
-    console.error("PATCH /api/staff/[id] failed:", err);
-    return NextResponse.json({ error: err.message || "Unexpected error" }, { status: 500 });
+    if (err instanceof z.ZodError)
+      return NextResponse.json({ error: err.flatten() }, { status: 400 });
+    return NextResponse.json({ error: err.message }, { status: 500 });
   }
 }
 
-// ------------------------- DELETE staff -------------------------
-export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
-  const staffId = await resolveParams({ params });
-  const user = await cookieUser(req);
-  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  if (![Role.ADMIN, Role.PRINCIPAL].includes(user.role))
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-
-  const deleted = await prisma.staff.deleteMany({
-    where: { id: staffId, schoolId: user.schoolId },
-  });
-
-  if (deleted.count === 0)
-    return NextResponse.json({ error: "Staff not found" }, { status: 404 });
-
-  return NextResponse.json({ data: "Staff deleted" });
-}
-
-/* Design reasoning → Transactional updates with user + staff consistency, role-based access, subjects delta update, and safe deletion.
-Structure → GET, PATCH, DELETE with Prisma transactions and relational includes.
-Implementation guidance → Only authorized roles can update/delete; PATCH normalizes inputs and handles subjects.
-Scalability insight → Extend PATCH schema for extra fields, handle more relations, or add batch operations without breaking current API.
+/* Design reasoning:
+- GET: Provides paginated, searchable, and filterable list scoped to user's school.
+- POST: Creates staff with secure password hashing, role/department inference, and multi-subject assignment.
+Structure:
+- GET: Returns staff list with subjects, class, and department relations.
+- POST: Creates nested user and staff records in a transaction for atomicity.
+Implementation guidance:
+- Front-end should send subjects as array of IDs; POST payload can include optional hireDate, salary, and classId.
+Scalability insight:
+- Schema and transaction pattern supports adding new relational fields (e.g., certifications, roles) without modifying core logic.
 */

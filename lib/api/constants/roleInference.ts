@@ -1,4 +1,6 @@
 // src/lib/api/constants/roleInference.ts
+// Purpose: Map positions to roles, provide default departments, determine class and subject requirements.
+
 import { Role } from "@prisma/client";
 
 /** 
@@ -68,6 +70,11 @@ export const roleToDepartment: Record<Role, string> = {
 export const roleRequiresClass: Role[] = ["TEACHER", "ASSISTANT_TEACHER", "CLASS_REP"];
 
 /**
+ * Roles that require subject selection.
+ */
+export const rolesWithSubjects: Role[] = ["TEACHER", "ASSISTANT_TEACHER"];
+
+/**
  * Infer a role from a position string.  
  * Fallback: TEACHER
  */
@@ -93,3 +100,21 @@ export function requiresClass(position?: string): boolean {
   const role = inferRoleFromPosition(position);
   return roleRequiresClass.includes(role);
 }
+
+/**
+ * Optional helper: does this role require subject assignment?
+ */
+export function requiresSubjects(position?: string): boolean {
+  const role = inferRoleFromPosition(position);
+  return rolesWithSubjects.includes(role);
+}
+
+/* 
+Design reasoning → Centralized, consistent mapping for positions → roles, departments, class & subject requirements. Provides reusable helpers for UI logic.
+
+Structure → positionRoleMap, roleToDepartment, roleRequiresClass, rolesWithSubjects, helper functions inferRoleFromPosition, inferDepartmentFromPosition, requiresClass, requiresSubjects.
+
+Implementation guidance → Use requiresSubjects in forms to conditionally render subject selectors. Ensure inferRoleFromPosition normalizes input strings.
+
+Scalability insight → Adding new positions, roles, or subject/class requirements is straightforward. All dependent UI and API logic reference these constants and helpers.
+*/

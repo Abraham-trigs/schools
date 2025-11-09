@@ -1,5 +1,5 @@
 // File: app/store/useStaffStore.ts
-// Purpose: Production-ready Zustand store for Staff management with full CRUD, pagination, search, filtering, caching, backend-aligned inference, optimistic updates, validation, and rollback safety.
+// Purpose: Zustand store for Staff management; handles full CRUD with User-first creation, optimistic updates, pagination, search, filtering, caching, rollback safety, and role inference.
 
 "use client";
 
@@ -7,7 +7,7 @@ import { create } from "zustand";
 import { debounce } from "lodash";
 import { z } from "zod";
 import { apiClient } from "@/lib/apiClient";
-import { requiresClass } from "@/lib/api/constants/roleInference";
+import { requiresClass, requiresSubjects } from "@/lib/api/constants/roleInference";
 
 // ------------------------- Types -------------------------
 export interface Staff {
@@ -18,7 +18,7 @@ export interface Staff {
   department?: { id: string; name: string } | null;
   position?: string | null;
   salary?: number | null;
-  subject?: string | null;
+  subjects?: string[];
   hireDate?: string | null;
   createdAt: string;
   updatedAt: string;
@@ -27,11 +27,12 @@ export interface Staff {
 export interface StaffPayload {
   name: string;
   email: string;
-  password?: string;
-  position?: string | null;
+  password: string;
+  position?: string;
+  department?: string | null;
   classId?: string | null;
   salary?: number | null;
-  subject?: string | null;
+  subjects?: string[];
   hireDate?: string | null;
 }
 
@@ -71,36 +72,38 @@ interface StaffState {
 
 // ------------------------- Store -------------------------
 export const useStaffStore = create<StaffState>((set, get) => {
-  // Debounced fetch for live search/filtering
+  // Debounced fetch to reduce network calls
   const fetchStaffDebounced = debounce((page?: number, search?: string) => {
     get().fetchStaff(page, search);
   }, 300);
 
-  // Payload normalization & basic validation using Zod
-  const normalizePayload = (payload: StaffPayload) => {
+  // Normalize staff payload before sending to API
+  const normalizeStaffPayload = (payload: StaffPayload) => {
     const schema = z.object({
-      name: z.string().min(1),
+      name: z.string(),
       email: z.string().email(),
-      password: z.string().optional(),
+      password: z.string(),
       position: z.string().optional(),
+      department: z.string().nullable().optional(),
       classId: z.string().nullable().optional(),
       salary: z.number().nullable().optional(),
-      subject: z.string().nullable().optional(),
+      subjects: z.array(z.string()).optional(),
       hireDate: z.string().nullable().optional(),
     });
+
     const parsed = schema.parse(payload);
+
     return {
       ...parsed,
-      name: parsed.name.trim(),
-      email: parsed.email.trim(),
       position: parsed.position ?? "Teacher",
       classId: requiresClass(parsed.position) ? parsed.classId ?? null : null,
+      subjects: requiresSubjects(parsed.position) ? parsed.subjects ?? [] : [],
       salary: parsed.salary ?? null,
-      subject: parsed.subject ?? null,
-      hireDate: parsed.hireDate ?? null,
+      hireDate: parsed.hireDate ?? new Date().toISOString(),
     };
   };
 
+  // Build query string for GET /api/staff
   const buildQueryString = () => {
     const params = new URLSearchParams();
     params.set("page", get().page.toString());
@@ -150,7 +153,6 @@ export const useStaffStore = create<StaffState>((set, get) => {
           `/api/staff?${query}`
         );
 
-        // Merge updated staff across all cached pages
         const mergedCache: Record<number, Staff[]> = { ...get().cache };
         Object.keys(mergedCache).forEach((p) => {
           mergedCache[+p] = mergedCache[+p].map((s) => {
@@ -174,7 +176,6 @@ export const useStaffStore = create<StaffState>((set, get) => {
 
     fetchStaffDebounced,
 
-    // ------------------------- Fetch single staff -------------------------
     fetchStaffById: async (id: string) => {
       set({ loading: true, error: null });
       try {
@@ -187,7 +188,6 @@ export const useStaffStore = create<StaffState>((set, get) => {
         const fetched = await apiClient<Staff>(`/api/staff/${id}`);
         set({ selectedStaff: fetched });
 
-        // Update all cached pages
         set((state) => {
           const updatedCache = Object.fromEntries(
             Object.entries(state.cache).map(([page, list]) => [
@@ -211,26 +211,28 @@ export const useStaffStore = create<StaffState>((set, get) => {
       }
     },
 
-    // ------------------------- Create staff -------------------------
+    // ------------------------- Create staff (User-first) -------------------------
     createStaff: async (payload: StaffPayload) => {
       set({ loading: true, error: null });
-      const normalized = normalizePayload(payload);
+
+      const normalized = normalizeStaffPayload(payload);
 
       // Optimistic update with temporary ID
       const tempId = `temp-${Date.now()}`;
       const optimisticStaff: Staff = {
         id: tempId,
         userId: tempId,
-        user: { id: tempId, name: normalized.name!, email: normalized.email! },
+        user: { id: tempId, name: normalized.name, email: normalized.email },
         class: normalized.classId ? { id: normalized.classId, name: "" } : null,
-        department: null,
+        department: normalized.department ? { id: normalized.department, name: normalized.department } : null,
         position: normalized.position,
         salary: normalized.salary,
-        subject: normalized.subject,
-        hireDate: normalized.hireDate ?? new Date().toISOString(),
+        subjects: normalized.subjects,
+        hireDate: normalized.hireDate,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       };
+
       set((state) => ({
         staffList: [optimisticStaff, ...state.staffList],
         total: state.total + 1,
@@ -259,19 +261,13 @@ export const useStaffStore = create<StaffState>((set, get) => {
       }
     },
 
-    // ------------------------- Update staff -------------------------
     updateStaff: async (id, payload) => {
       set({ loading: true, error: null });
-      const normalizedPayload = {
-        ...payload,
-        position: payload.position ?? undefined,
-        classId: requiresClass(payload.position) ? payload.classId ?? null : null,
-      };
+      const normalized = normalizeStaffPayload({ ...payload } as StaffPayload);
       const prevStaff = get().staffList.find((s) => s.id === id);
       if (!prevStaff) return null;
 
-      // Optimistic update
-      const optimisticStaff = { ...prevStaff, ...normalizedPayload };
+      const optimisticStaff = { ...prevStaff, ...normalized };
       set((state) => ({
         staffList: state.staffList.map((s) => (s.id === id ? optimisticStaff : s)),
         selectedStaff: state.selectedStaff?.id === id ? optimisticStaff : state.selectedStaff,
@@ -280,7 +276,7 @@ export const useStaffStore = create<StaffState>((set, get) => {
       try {
         const updated = await apiClient<Staff>(`/api/staff/${id}`, {
           method: "PUT",
-          body: JSON.stringify(normalizedPayload),
+          body: JSON.stringify(normalized),
         });
 
         set((state) => ({
@@ -290,7 +286,6 @@ export const useStaffStore = create<StaffState>((set, get) => {
 
         return updated;
       } catch (err: any) {
-        // Rollback
         set((state) => ({
           staffList: state.staffList.map((s) => (s.id === id ? prevStaff : s)),
           selectedStaff: state.selectedStaff?.id === id ? prevStaff : state.selectedStaff,
@@ -302,13 +297,11 @@ export const useStaffStore = create<StaffState>((set, get) => {
       }
     },
 
-    // ------------------------- Delete staff -------------------------
     deleteStaff: async (id: string) => {
       set({ loading: true, error: null });
       const prevStaff = get().staffList.find((s) => s.id === id);
       if (!prevStaff) return;
 
-      // Optimistic delete
       set((state) => ({
         staffList: state.staffList.filter((s) => s.id !== id),
         selectedStaff: state.selectedStaff?.id === id ? null : state.selectedStaff,
@@ -318,7 +311,6 @@ export const useStaffStore = create<StaffState>((set, get) => {
       try {
         await apiClient(`/api/staff/${id}`, { method: "DELETE" });
       } catch (err: any) {
-        // Rollback
         set((state) => ({
           staffList: [prevStaff, ...state.staffList],
           total: state.total + 1,
@@ -333,9 +325,17 @@ export const useStaffStore = create<StaffState>((set, get) => {
   };
 });
 
-/* -------------------------
-Design reasoning → Fully mirrors API with optimistic updates, rollback safety, search, filtering, pagination, caching, and normalized payloads. Ensures responsive UI with consistent backend state.
-Structure → State: staffList, selectedStaff, pagination, search, filters, loading, error, cache. Actions handle fetch, fetchById, create, update, delete, with debounced search and merged cache.
-Implementation guidance → Use normalizePayload for validation; fetchStaffDebounced for live search/filter; optimistic updates with rollback; atomic createStaff with temporary IDs; merges staff across cached pages.
-Scalability insight → Extendable for additional relations, filters, roles, inferred fields, and multi-step transactions; optimistic pattern reusable for other stores; clean separation of state, actions, and helpers ensures maintainability.
-*/
+// /* 
+// Design reasoning → Centralized state for Staff management, handling user-first creation, optimistic UI, rollback safety, filtering, search, pagination, caching, and role inference.
+
+// Structure → Zustand store with staffList, selectedStaff, pagination, filters, loading, error, cache; includes methods for fetch, fetchById, create, update, delete.
+
+// Implementation guidance → Always normalize payloads with class/subject inference. Use optimistic updates for smoother UX and rollback on error. Debounce searches to reduce network load.
+
+// Scalability insight → Easily extendable with additional relations, new fields, or roles. Separation of User + Staff payload allows future-proof expansions and multi-school support.
+
+// Example usage:
+// ```ts
+// const { staffList, fetchStaff, createStaff } = useStaffStore();
+// useEffect(() => { fetchStaff(); }, []);
+// await createStaff({ name: "Alice", email: "alice@school.com", password: "secret", position: "TEACHER", classId: "class-1", subjects: ["Math"] });

@@ -1,6 +1,5 @@
 // app/dashboard/staff/components/AddStaffModal.tsx
-// Purpose: Modal form to create new staff; supports multi-subject selection, infers role/department/class automatically,
-//          posts via Zustand store (useStaffStore), supports optimistic UI and school scoping.
+// Purpose: Modal to create new Staff (and optionally a User), fully validated, integrates with useStaffStore & useUserStore, optimistic UI, multi-subject selection, role/class inference.
 
 "use client";
 
@@ -14,16 +13,18 @@ import {
 import { useForm, Controller } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useStaffStore } from "@/app/store/useStaffStore";
-import { useClassesStore } from "@/app/store/useClassesStore";
-import { useSubjectStore } from "@/app/store/subjectStore.ts";
+import Select from "react-select";
+
+import { useStaffStore } from "@/store/useStaffStore.ts";
+import { useClassesStore } from "@/store/useClassesStore.ts";
+import { useSubjectStore } from "@/store/subjectStore.ts";
+import { useUserStore } from "@/store/useUserStore.ts";
 import {
   roleToDepartment,
   roleRequiresClass,
   positionRoleMap,
   inferRoleFromPosition,
-} from "@/lib/api/constants/roleInference";
-import Select from "react-select";
+} from "@lib/api/constants/roleInference.ts";
 
 // ---------------------- Schema ----------------------
 const staffSchema = z.object({
@@ -32,9 +33,13 @@ const staffSchema = z.object({
   password: z.string().min(6, "Minimum 6 characters"),
   position: z.string().min(1, "Position is required"),
   department: z.string().optional(),
-  salary: z.coerce.number().optional(),
+  salary: z.preprocess(
+    (val) => (val === "" ? null : Number(val)),
+    z.number().nullable().optional()
+  ),
   subjects: z.array(z.string()).optional(),
   classId: z.string().optional().nullable(),
+  createUser: z.boolean().optional(), // flag to also create user account
 });
 
 type StaffFormValues = z.infer<typeof staffSchema>;
@@ -46,9 +51,10 @@ interface AddStaffModalProps {
 
 // ---------------------- Modal Component ----------------------
 export default function AddStaffModal({ isOpen, onClose }: AddStaffModalProps) {
-  const { createStaff, loading: isLoading } = useStaffStore();
+  const { createStaff, loading: staffLoading } = useStaffStore();
   const { classes, fetchClasses } = useClassesStore();
   const { subjects, fetchSubjects } = useSubjectStore();
+  const { createUser } = useUserStore();
 
   const {
     register,
@@ -68,12 +74,14 @@ export default function AddStaffModal({ isOpen, onClose }: AddStaffModalProps) {
       salary: undefined,
       subjects: [],
       classId: undefined,
+      createUser: true,
     },
   });
 
   const position = watch("position");
+  const createUserFlag = watch("createUser");
 
-  // ---------------------- Fetch classes & subjects when modal opens ----------------------
+  // Fetch classes & subjects when modal opens
   useEffect(() => {
     if (isOpen) {
       fetchClasses();
@@ -81,13 +89,11 @@ export default function AddStaffModal({ isOpen, onClose }: AddStaffModalProps) {
     }
   }, [isOpen, fetchClasses, fetchSubjects]);
 
-  // ---------------------- Auto-fill department based on role ----------------------
+  // Auto-fill department based on role
   useEffect(() => {
     if (position) {
       const inferredRole = inferRoleFromPosition(position);
-      const inferredDept = inferredRole
-        ? roleToDepartment[inferredRole]
-        : undefined;
+      const inferredDept = roleToDepartment[inferredRole];
       if (inferredDept)
         reset((prev) => ({ ...prev, department: inferredDept }));
     }
@@ -97,38 +103,50 @@ export default function AddStaffModal({ isOpen, onClose }: AddStaffModalProps) {
     ? roleRequiresClass.includes(inferRoleFromPosition(position))
     : false;
 
-  // ---------------------- Submit handler ----------------------
+  // ---------------------- Submit Handler ----------------------
   const onSubmit = async (data: StaffFormValues) => {
-    const role = inferRoleFromPosition(data.position);
+    try {
+      const role = inferRoleFromPosition(data.position);
 
-    const userPayload = {
-      name: data.name,
-      email: data.email,
-      password: data.password,
-      role,
-    };
+      // Prepare payload for Staff
+      const staffPayload = {
+        name: data.name,
+        email: data.email,
+        position: data.position,
+        department: data.department || roleToDepartment[role],
+        classId: requiresClass ? data.classId ?? null : null,
+        salary: data.salary ?? null,
+        subjects: data.subjects ?? [],
+      };
 
-    const staffPayload = {
-      position: data.position,
-      department: data.department || roleToDepartment[role],
-      classId: data.classId ?? null,
-      salary: data.salary ?? null,
-      subjects: data.subjects ?? [],
-    };
+      // Transactional creation: User + Staff if createUser flag is true
+      let user;
+      if (createUserFlag) {
+        user = await createUser({
+          name: data.name,
+          email: data.email,
+          password: data.password,
+          role,
+        });
+      }
 
-    await createStaff(userPayload, staffPayload);
+      const createdStaff = await createStaff({
+        ...staffPayload,
+        userId: user?.id ?? null,
+      });
 
-    reset();
-    onClose();
+      if (createdStaff) {
+        reset();
+        onClose();
+      }
+    } catch (err) {
+      console.error("Create staff error:", err);
+    }
   };
 
   const positions = Object.keys(positionRoleMap);
-  const subjectOptions = subjects.map((s) => ({
-    value: s.name,
-    label: s.name,
-  }));
+  const subjectOptions = subjects.map((s) => ({ value: s.id, label: s.name }));
 
-  // ---------------------- Render ----------------------
   return (
     <Dialog open={isOpen} onClose={onClose} className="relative z-50">
       <DialogBackdrop className="fixed inset-0 bg-black/30" />
@@ -164,18 +182,26 @@ export default function AddStaffModal({ isOpen, onClose }: AddStaffModalProps) {
             </div>
 
             {/* Password */}
-            <div>
-              <label className="block text-sm font-medium">Password</label>
-              <input
-                type="password"
-                {...register("password")}
-                className="mt-1 w-full rounded-md border px-3 py-2"
-              />
-              {errors.password && (
-                <p className="text-sm text-red-500">
-                  {errors.password.message}
-                </p>
-              )}
+            {createUserFlag && (
+              <div>
+                <label className="block text-sm font-medium">Password</label>
+                <input
+                  type="password"
+                  {...register("password")}
+                  className="mt-1 w-full rounded-md border px-3 py-2"
+                />
+                {errors.password && (
+                  <p className="text-sm text-red-500">
+                    {errors.password.message}
+                  </p>
+                )}
+              </div>
+            )}
+
+            {/* Create User Toggle */}
+            <div className="flex items-center gap-2">
+              <input type="checkbox" {...register("createUser")} />
+              <span className="text-sm">Also create a User account</span>
             </div>
 
             {/* Position */}
@@ -219,7 +245,7 @@ export default function AddStaffModal({ isOpen, onClose }: AddStaffModalProps) {
               />
             </div>
 
-            {/* Subjects - Multi Select */}
+            {/* Subjects */}
             <div>
               <label className="block text-sm font-medium">Subjects</label>
               <Controller
@@ -240,7 +266,7 @@ export default function AddStaffModal({ isOpen, onClose }: AddStaffModalProps) {
               />
             </div>
 
-            {/* Class (conditionally rendered) */}
+            {/* Class */}
             {requiresClass && (
               <div>
                 <label className="block text-sm font-medium">Class</label>
@@ -269,10 +295,10 @@ export default function AddStaffModal({ isOpen, onClose }: AddStaffModalProps) {
               </button>
               <button
                 type="submit"
-                disabled={isLoading}
+                disabled={staffLoading}
                 className="rounded-md bg-blue-600 px-4 py-2 text-white hover:bg-blue-700 disabled:opacity-50"
               >
-                {isLoading ? "Saving..." : "Create Staff"}
+                {staffLoading ? "Saving..." : "Create Staff"}
               </button>
             </div>
           </form>
@@ -282,21 +308,23 @@ export default function AddStaffModal({ isOpen, onClose }: AddStaffModalProps) {
   );
 }
 
-/* Design reasoning:
-- Uses Zustand stores for subjects, classes, and staff to maintain consistent state across the dashboard.
-- Multi-select for subjects improves UX for teachers handling multiple subjects and reduces manual errors.
-- Auto-fills department and conditionally renders class dropdown based on position for clarity and efficiency.
+/*
+Design reasoning:
+- Integrates both Staff and User stores for transactional creation.
+- Conditional password + User creation supports multi-use cases.
+- Optimistic UI for faster perception and rollback support.
 
 Structure:
-- Main exported component: AddStaffModal
-- Form with react-hook-form + Zod validation
-- Controller used for multi-select subject integration
-- Form reset on modal close or successful submit
+- React Hook Form + Zod for validation, Controller for multi-select.
+- Watches position and createUser to dynamically render fields.
+- Departments auto-inferred from role.
 
 Implementation guidance:
-- Ensure `fetchSubjects()` and `fetchClasses()` are invoked on modal open to populate selects.
-- Can extend to bulk assignment or role-specific logic.
+- Call `createStaff` and optionally `createUser` sequentially.
+- Reset form + close modal after successful creation.
+- Handles field-level errors, conditional class dropdown, subjects.
 
 Scalability insight:
-- Multi-select pattern allows extending to other relational fields (skills, certifications) without changing core modal logic.
+- Supports adding more relational fields (e.g., bus assignment, supervisor).
+- Can extend to bulk staff creation, transactional updates, or API-level debouncing.
 */

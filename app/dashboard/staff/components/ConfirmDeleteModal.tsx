@@ -5,8 +5,8 @@
 
 import React, { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Staff, useStaffStore } from "@/app/store/useStaffStore";
-import { notify } from "@/lib/helpers/notifications"; // ✅ Added toast helper
+import { Staff, useStaffStore } from "@/store/useStaffStore.ts";
+import { notify } from "@lib/helpers/notifications.ts"; // ✅ Added toast helper
 
 interface ConfirmDeleteModalProps {
   isOpen: boolean;

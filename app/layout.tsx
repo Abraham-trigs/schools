@@ -3,8 +3,8 @@ import "./globals.css";
 import { ReactNode } from "react";
 import { Toaster } from "sonner";
 import AppBackground from "./components/AppBackground";
-import FooterWrapper from "@/app/components/home/FooterWrapper";
-import BackToTop from "./components/home/BackToTop";
+import FooterWrapper from "./components/home/FooterWrapper.tsx";
+import BackToTop from "./components/home/BackToTop.tsx";
 
 export const metadata = {
   title: "Ford School Management",

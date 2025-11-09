@@ -8,9 +8,9 @@ import { useRouter } from "next/navigation";
 import { Bell, LogOut, ChevronDown, Menu } from "lucide-react";
 import clsx from "clsx";
 import axios from "axios";
-import { useTopbarStore } from "@/app/store/useTopbarStore";
-import { useUserStore } from "@/app/store/useUserStore";
-import { useSidebarStore } from "@/app/store/useSidebarStore";
+import { useTopbarStore } from "@/store/useTopbarStore.ts";
+import { useUserStore } from "@/store/useUserStore.ts";
+import { useSidebarStore } from "@/store/useSidebarStore.ts";
 
 const formatTimestamp = (ts: string) =>
   new Date(ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });

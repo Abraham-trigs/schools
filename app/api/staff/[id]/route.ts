@@ -1,144 +1,121 @@
-"use server";
-
 // app/api/staff/[id]/route.ts
-// Purpose: Update or delete staff securely. Supports nested user updates, subjects, hireDate, department inference, and school scoping.
+// Purpose: Staff item API – retrieve, update, delete by ID with school scoping, transactional updates, multi-subject support, field-level errors, and extensible filters
 
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { z } from "zod";
 import { cookieUser } from "@/lib/cookieUser";
-import { inferDepartmentFromPosition, requiresClass } from "@/lib/api/constants/roleInference.ts";
+import { requiresClass, requiresSubjects, inferDepartmentFromPosition } from "@/lib/api/constants/roleInference";
 
-// ------------------------- Types & Interfaces -------------------------
-interface StaffUpdateRequest {
-  name?: string;
-  email?: string;
-  position?: string;
-  classId?: string | null;
-  subjects?: string[];
-  hireDate?: Date | null;
-  salary?: number;
-}
-
-// ------------------------- Validation -------------------------
+// ------------------------- Schemas -------------------------
 const staffUpdateSchema = z.object({
-  name: z.string().optional(),
-  email: z.string().email().optional(),
   position: z.string().optional(),
-  classId: z.string().nullable().optional(),
-  subjects: z.array(z.string()).optional(),
-  hireDate: z.preprocess((val) => (val ? new Date(val as string) : null), z.date().nullable().optional()),
-  salary: z.coerce.number().optional(),
+  salary: z.number().optional(),
+  hireDate: z.string().optional(),
+  classId: z.string().optional().nullable(),
+  subjectIds: z.array(z.string()).optional(),
+  department: z.string().optional(),
+  busId: z.string().optional().nullable(), // extensible filter
+  createdAt: z.string().optional(),       // extensible filter
 });
 
-// ------------------------- Helpers -------------------------
-async function findDepartmentId(name: string | null, schoolId: string): Promise<string | null> {
-  if (!name) return null;
-  const dept = await prisma.department.findUnique({
-    where: { name_schoolId: { name, schoolId } },
-    select: { id: true },
-  });
-  return dept?.id ?? null;
-}
+// ------------------------- GET: Retrieve Staff -------------------------
+export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
+  const authUser = await cookieUser();
+  if (!authUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-async function filterValidSubjectIds(subjectIds: string[] | undefined, schoolId: string): Promise<string[]> {
-  if (!subjectIds?.length) return [];
-  const validSubjects = await prisma.subject.findMany({
-    where: { id: { in: subjectIds }, schoolId },
-    select: { id: true },
+  const staff = await prisma.staff.findFirst({
+    where: { id: params.id, schoolId: authUser.schoolId },
+    include: { user: true, subjects: true, class: true },
   });
-  return validSubjects.map((s) => s.id);
+
+  if (!staff) return NextResponse.json({ error: "Staff not found" }, { status: 404 });
+
+  return NextResponse.json(staff);
 }
 
 // ------------------------- PUT: Update Staff -------------------------
 export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
-  const user = await cookieUser();
-  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const authUser = await cookieUser();
+  if (!authUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   try {
-    const body: StaffUpdateRequest = await req.json();
+    const body = await req.json();
     const data = staffUpdateSchema.parse(body);
 
-    const staff = await prisma.staff.findUnique({ where: { id: params.id }, include: { user: true, subjects: true } });
-    if (!staff) return NextResponse.json({ error: "Staff not found" }, { status: 404 });
-    if (staff.user.schoolId !== user.schoolId) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    // Fetch existing staff for transactional updates
+    const existingStaff = await prisma.staff.findFirst({ where: { id: params.id, schoolId: authUser.schoolId } });
+    if (!existingStaff) return NextResponse.json({ error: "Staff not found" }, { status: 404 });
 
-    const departmentId = await findDepartmentId(data.position ? inferDepartmentFromPosition(data.position) : null, user.schoolId);
-    const validSubjectIds = await filterValidSubjectIds(data.subjects, user.schoolId);
+    // Validate class requirement
+    if (data.position && requiresClass(data.position) && !data.classId && !existingStaff.classId)
+      return NextResponse.json({ error: { classId: ["Class is required for this position"] } }, { status: 400 });
 
-    const updateData: any = {
-      position: data.position ?? staff.position,
-      departmentId: departmentId ?? staff.departmentId ?? null,
-      classId: requiresClass(data.position ?? staff.position) ? data.classId ?? staff.classId ?? null : null,
-      hireDate: data.hireDate ?? staff.hireDate ?? null,
-      salary: data.salary ?? staff.salary ?? null,
-    };
+    // Validate subjects
+    if (data.position && requiresSubjects(data.position) && (!data.subjectIds || data.subjectIds.length === 0))
+      return NextResponse.json({ error: { subjectIds: ["At least one subject required"] } }, { status: 400 });
 
-    if (validSubjectIds.length) updateData.subjects = { set: validSubjectIds.map((id) => ({ id })) };
+    // Normalize fields
+    if (data.hireDate) data.hireDate = new Date(data.hireDate);
+    if (data.createdAt) data.createdAt = new Date(data.createdAt);
 
-    // Nested user updates
-    if (data.name || data.email) {
-      await prisma.user.update({
-        where: { id: staff.userId },
-        data: { ...(data.name && { name: data.name }), ...(data.email && { email: data.email }) },
+    // Transactional update
+    const updatedStaff = await prisma.$transaction(async (tx) => {
+      const staff = await tx.staff.update({
+        where: { id: params.id },
+        data: {
+          position: data.position,
+          salary: data.salary,
+          hireDate: data.hireDate,
+          classId: data.classId ?? existingStaff.classId,
+          department: data.department ?? (data.position ? inferDepartmentFromPosition(data.position) : existingStaff.department),
+          busId: data.busId ?? existingStaff.busId,
+          subjects: data.subjectIds ? { set: data.subjectIds.map((id) => ({ id })) } : undefined,
+          createdAt: data.createdAt ?? existingStaff.createdAt,
+        },
+        include: { user: true, subjects: true, class: true },
       });
-    }
 
-    const updatedStaff = await prisma.staff.update({
-      where: { id: params.id },
-      data: updateData,
-      include: { user: true, class: true, department: true, subjects: true },
+      // Example: could update related User record or other related models here
+      // await tx.user.update({ where: { id: staff.userId }, data: { department: staff.department } });
+
+      return staff;
     });
 
-    return NextResponse.json({ staff: updatedStaff });
+    return NextResponse.json(updatedStaff);
   } catch (err: any) {
-    if (err instanceof z.ZodError) return NextResponse.json({ error: { message: "Validation failed", details: err.errors } }, { status: 400 });
-    return NextResponse.json({ error: { message: err.message || "Internal Server Error" } }, { status: 500 });
+    if (err instanceof z.ZodError) return NextResponse.json({ error: err.flatten() }, { status: 400 });
+    return NextResponse.json({ error: err.message }, { status: 500 });
   }
 }
 
 // ------------------------- DELETE: Remove Staff -------------------------
 export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
-  const user = await cookieUser();
-  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
-  const staff = await prisma.staff.findUnique({ where: { id: params.id }, include: { user: true } });
-  if (!staff) return NextResponse.json({ error: "Staff not found" }, { status: 404 });
-  if (staff.user.schoolId !== user.schoolId) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  const authUser = await cookieUser();
+  if (!authUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   try {
-    // Transaction: disconnect subjects + delete related records + delete staff
-    await prisma.$transaction([
-      prisma.staff.update({
-        where: { id: params.id },
-        data: {
-          subjects: { set: [] },
-          attendances: { deleteMany: {} },
-          financesRecorded: { deleteMany: {} },
-        },
-      }),
-      prisma.staff.delete({ where: { id: params.id } }),
-    ]);
+    await prisma.$transaction(async (tx) => {
+      // Optionally delete related Staff-User relationships
+      await tx.staff.delete({ where: { id: params.id } });
+    });
 
     return NextResponse.json({ success: true });
   } catch (err: any) {
-    console.error("DELETE staff error:", err);
-    return NextResponse.json({ error: { message: "Internal Server Error" } }, { status: 500 });
+    return NextResponse.json({ error: err.message }, { status: 500 });
   }
 }
 
-/* 
-Design reasoning:
-- PUT: Updates staff including nested user fields, subjects, class, department, hireDate, salary.
-- DELETE: Safely removes staff with relational cleanup (subjects, attendances, finances).
-Structure:
-- Validation, auth, and school scoping applied consistently.
-- Helper functions handle department and subject scoping.
-Implementation guidance:
-- Always call cookieUser for authentication.
-- Send subjects as array of IDs for connect/set operations.
-- hireDate can be null or ISO string.
-Scalability:
-- Works with large datasets: hundreds of subjects and staff members.
-- Transactional updates and deletes prevent partial state corruption.
-*/
+// ------------------------- Design reasoning → -------------------------
+// Staff item API is school-scoped, transactional, and validates class/subject requirements. Supports extensible filters (busId, createdAt) and relational updates. Field-level error responses allow inline form validation and prevent breaking frontend forms.
+
+// ------------------------- Structure → -------------------------
+// GET → retrieve staff with user, class, subjects relations
+// PUT → update staff with transactional handling, multi-subject support, normalization, and optional relational updates
+// DELETE → remove staff atomically
+
+// ------------------------- Implementation guidance → -------------------------
+// Frontend can call GET/PUT/DELETE; PUT returns full staff object including relations for optimistic updates. Extensible transaction blocks allow adding related model updates without breaking API. Field-level errors support inline form validations for better UX.
+
+// ------------------------- Scalability insight → -------------------------
+// Easily extend with additional filters (busId, createdAt, department), transactional updates for other related models (User, Attendance, Payroll), or dynamic form validation. Ensures data integrity while supporting future feature expansion.

@@ -2,9 +2,9 @@
 // Purpose: Safely retrieve authenticated user from HTTP-only JWT cookie using Prisma Role enum
 
 import { cookies } from "next/headers";
-import { prisma, Role } from "@/lib/db"; // Role imported from Prisma schema
-import { verifyJwt } from "@/lib/jwt";
-import { COOKIE_NAME } from "@/lib/cookies";
+import { prisma, Role } from "@lib/db.ts"; // Role imported from Prisma schema
+import { verifyJwt } from "@lib/jwt.ts";
+import { COOKIE_NAME } from "@lib/cookies.ts";
 
 /**
  * Returns minimal authenticated user info if JWT token is valid.

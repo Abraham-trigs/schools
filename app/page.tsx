@@ -3,8 +3,8 @@
 import { motion } from "framer-motion";
 import { useInView, AnimatePresence } from "framer-motion";
 import { useState, useEffect, useRef } from "react";
-import Navbar from "@/app/components/home/NavBar";
-import ScrollingCards from "@/app/components/home/ScrollingCards";
+import Navbar from "./components/home/NavBar.tsx";
+import ScrollingCards from "./components/home/ScrollingCards.tsx";
 import Logo from "./components/home/Logo";
 import Image from "next/image";
 import CareerAndClassSection from "./components/home/CareerAndClassSection.tsx";

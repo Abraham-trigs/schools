@@ -6,9 +6,9 @@
 import { create } from "zustand";
 import { debounce } from "lodash";
 import { Class, Student } from "@prisma/client";
-import { apiClient } from "@/lib/apiClient";
-import { API_ENDPOINTS } from "@/lib/api/endpoints";
-import { notify } from "@/lib/helpers/notifications";
+import { apiClient } from "@lib/apiClient.ts";
+import { API_ENDPOINTS } from "@lib/api/endpoints.ts";
+import { notify } from "@lib/helpers/notifications.ts";
 
 // ------------------------- Types -------------------------
 export type AttendanceStatus = "PRESENT" | "ABSENT" | "LATE" | "EXCUSED";

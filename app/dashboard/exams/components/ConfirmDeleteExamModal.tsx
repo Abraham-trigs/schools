@@ -3,7 +3,7 @@
 import { Dialog } from "@headlessui/react";
 import { Trash2 } from "lucide-react";
 import { useState } from "react";
-import { useExamStore } from "@/app/store/examsStore.ts";
+import { useExamStore } from "@/store/examsStore.ts";
 
 interface ConfirmDeleteExamModalProps {
   isOpen?: boolean;

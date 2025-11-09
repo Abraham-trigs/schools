@@ -4,8 +4,13 @@ import { useState } from "react";
 import axios from "axios";
 import clsx from "clsx";
 import Image from "next/image";
+import { useRouter } from "next/navigation";
+import { useAuthStore } from "@/store/useAuthStore.ts";
 
 export default function LoginPage() {
+  const router = useRouter();
+  const { setUser } = useAuthStore();
+
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
@@ -17,8 +22,17 @@ export default function LoginPage() {
     setError("");
 
     try {
-      const res = await axios.post("/api/auth/login", { email, password });
-      if (res.status === 200) window.location.href = "/dashboard";
+      const res = await axios.post<{ user: any }>(
+        "/api/auth/login",
+        { email, password },
+        { withCredentials: true }
+      );
+
+      // Update AuthStore immediately
+      setUser(res.data.user);
+
+      // Redirect to dashboard
+      router.replace("/dashboard");
     } catch (err: any) {
       setError(err?.response?.data?.message || "Login failed");
     } finally {
@@ -30,14 +44,13 @@ export default function LoginPage() {
     <div className="relative flex items-center justify-center min-h-screen ">
       {/* Background Image */}
       <Image
-        src="/main-4.webp" // Your background image
+        src="/main-4.webp"
         alt="Ford School"
         fill
         className="object-cover object-top -z-10 blur-sm"
         priority
       />
-      {/* Optional overlay for better contrast */}
-      <div className="absolute inset-0  -z-0"></div>
+      <div className="absolute inset-0 -z-0"></div>
 
       {/* Login Form */}
       <div className="relative w-full max-w-md p-8 bg-ford-card rounded-lg shadow-2xs z-10">

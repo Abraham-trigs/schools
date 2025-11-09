@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useExamStore } from "@/app/store/examsStore.ts";
+import { useExamStore } from "@/store/examsStore.ts";
 import { Dialog } from "@headlessui/react";
 import { X } from "lucide-react";
 

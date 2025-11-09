@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { Loader2, Plus } from "lucide-react";
 import ExamsFormModal from "./components/ExamsFormModal";
 import ConfirmDeleteExamModal from "./components/ConfirmDeleteExamModal";
-import { useExamStore } from "@/app/store/examsStore.ts";
+import { useExamStore } from "@/store/examsStore.ts";
 
 export default function ExamsPage() {
   const {

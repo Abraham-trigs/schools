@@ -18,12 +18,9 @@
     "resolveJsonModule": true,
     "isolatedModules": true,
     "allowImportingTsExtensions": true,
-    "baseUrl": "./",
-    "paths": {
-      "@/*": [
-        "./*"
-      ]
-    },
+    "baseUrl": ".",
+     "paths": { "@/*": ["app/*"],
+      "@lib/*": ["lib/*"] },
     "incremental": true,
     "types": [
       "node"

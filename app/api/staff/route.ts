@@ -1,166 +1,86 @@
-"use server";
-
 // app/api/staff/route.ts
-// Purpose: List and create staff scoped to authenticated user's school.
-// Features: pagination, search, filtering, role/department inference, multi-subject support.
+// Purpose: Staff collection API – list with pagination, search, filters, sorting, debounce; create staff with transactional user reference, multi-subject support, and field-level error responses
 
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { z } from "zod";
-import bcrypt from "bcryptjs";
 import { cookieUser } from "@/lib/cookieUser";
-import {
-  inferRoleFromPosition,
-  inferDepartmentFromPosition,
-  requiresClass,
-} from "@/lib/api/constants/roleInference.ts";
+import { requiresClass, requiresSubjects, inferDepartmentFromPosition } from "@/lib/api/constants/roleInference";
 
-// ------------------------- Types & Interfaces -------------------------
-interface StaffCreateRequest {
-  name: string;
-  email: string;
-  password: string;
-  position?: string | null;
-  classId?: string | null;
-  salary?: number | null;
-  hireDate?: Date | null;
-  subjects?: string[];
-}
-
-// ------------------------- Input Validation -------------------------
+// ------------------------- Schemas -------------------------
 const staffCreateSchema = z.object({
-  name: z.string().min(1, "Name is required"),
-  email: z.string().email("Invalid email"),
-  password: z.string().min(6, "Password must be at least 6 characters"),
-  position: z.string().optional().nullable(),
+  userId: z.string(),
+  position: z.string(),
+  salary: z.number(),
+  hireDate: z.string(),
   classId: z.string().optional().nullable(),
-  salary: z.preprocess(
-    (val) => (val === "" ? null : Number(val)),
-    z.number().nullable().optional()
-  ),
-  hireDate: z.preprocess(
-    (val) => (val ? new Date(val as string) : null),
-    z.date().nullable().optional()
-  ),
-  subjects: z.array(z.string()).optional(),
+  subjectIds: z.array(z.string()).optional(),
+  department: z.string().optional(),
+  busId: z.string().optional().nullable(),
 });
 
-// ------------------------- Helper Functions -------------------------
-
-/**
- * Safely fetch a department ID by name scoped to a school
- */
-async function findDepartmentId(name: string | null, schoolId: string): Promise<string | null> {
-  if (!name) return null;
-  const dept = await prisma.department.findUnique({
-    where: { name_schoolId: { name, schoolId } },
-    select: { id: true },
-  });
-  return dept?.id ?? null;
-}
-
-/**
- * Filter subject IDs by school to avoid invalid connects
- */
-async function filterValidSubjectIds(subjectIds: string[] | undefined, schoolId: string): Promise<string[]> {
-  if (!subjectIds?.length) return [];
-  const validSubjects = await prisma.subject.findMany({
-    where: { id: { in: subjectIds }, schoolId },
-    select: { id: true },
-  });
-  return validSubjects.map((s) => s.id);
-}
+const staffQuerySchema = z.object({
+  search: z.string().optional(),
+  department: z.string().optional(),
+  classId: z.string().optional(),
+  subjectId: z.string().optional(),
+  busId: z.string().optional(),
+  hiredFrom: z.string().optional(),
+  hiredTo: z.string().optional(),
+  createdFrom: z.string().optional(),
+  createdTo: z.string().optional(),
+  page: z.preprocess((val) => Number(val), z.number().min(1)).optional(),
+  perPage: z.preprocess((val) => Number(val), z.number().min(1).max(100)).optional(),
+  sortBy: z.string().optional(),
+  sortOrder: z.enum(["asc", "desc"]).optional(),
+  debounce: z.preprocess((val) => Number(val), z.number().min(0)).optional(),
+});
 
 // ------------------------- GET: List Staff -------------------------
 export async function GET(req: NextRequest) {
-  const user = await cookieUser();
-  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
-  const url = new URL(req.url);
-  const search = url.searchParams.get("search")?.trim();
-  const role = url.searchParams.get("role")?.trim();
-  const departmentId = url.searchParams.get("departmentId")?.trim();
-  const page = Math.max(Number(url.searchParams.get("page") || 1), 1);
-  const perPage = Math.min(Number(url.searchParams.get("perPage") || 10), 100);
-
-  // Dynamic WHERE filters
-  const where: any = { user: { schoolId: user.schoolId } };
-  if (search) {
-    where.OR = [
-      { user: { name: { contains: search, mode: "insensitive" } } },
-      { user: { email: { contains: search, mode: "insensitive" } } },
-      { position: { contains: search, mode: "insensitive" } },
-    ];
-  }
-  if (role) where.user.role = role;
-  if (departmentId) where.departmentId = departmentId;
+  const authUser = await cookieUser();
+  if (!authUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   try {
-    // Fetch paginated staff and total count atomically
-    const [staffList, total] = await prisma.$transaction([
-      prisma.staff.findMany({
-        where,
-        include: { user: true, class: true, department: true, subjects: true },
-        skip: (page - 1) * perPage,
-        take: perPage,
-        orderBy: { createdAt: "desc" },
-      }),
-      prisma.staff.count({ where }),
-    ]);
+    const url = new URL(req.url);
+    const query = staffQuerySchema.parse(Object.fromEntries(url.searchParams));
+
+    if (query.debounce) await new Promise((res) => setTimeout(res, query.debounce));
+
+    const where: any = { schoolId: authUser.schoolId };
+    if (query.search) where.position = { contains: query.search, mode: "insensitive" };
+    if (query.department) where.department = query.department;
+    if (query.classId) where.classId = query.classId;
+    if (query.subjectId) where.subjects = { some: { id: query.subjectId } };
+    if (query.busId) where.busId = query.busId;
+    if (query.hiredFrom || query.hiredTo) {
+      where.hireDate = {};
+      if (query.hiredFrom) where.hireDate.gte = new Date(query.hiredFrom);
+      if (query.hiredTo) where.hireDate.lte = new Date(query.hiredTo);
+    }
+    if (query.createdFrom || query.createdTo) {
+      where.createdAt = {};
+      if (query.createdFrom) where.createdAt.gte = new Date(query.createdFrom);
+      if (query.createdTo) where.createdAt.lte = new Date(query.createdTo);
+    }
+
+    const total = await prisma.staff.count({ where });
+    const orderBy: any = {};
+    if (query.sortBy) orderBy[query.sortBy] = query.sortOrder || "asc";
+
+    const staff = await prisma.staff.findMany({
+      where,
+      include: { user: true, subjects: true, class: true },
+      skip: ((query.page || 1) - 1) * (query.perPage || 10),
+      take: query.perPage || 10,
+      orderBy: orderBy || { hireDate: "desc" },
+    });
 
     return NextResponse.json({
-      staffList,
+      staff,
       total,
-      page,
-      perPage,
-      totalPages: Math.ceil(total / perPage),
-    });
-  } catch (err: any) {
-    console.error("GET staff error:", err);
-    return NextResponse.json({ error: err.message || "Internal Server Error" }, { status: 500 });
-  }
-}
-
-// ------------------------- POST: Create Staff -------------------------
-export async function POST(req: NextRequest) {
-  const user = await cookieUser();
-  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
-  try {
-    const body: StaffCreateRequest = await req.json();
-    const data = staffCreateSchema.parse(body);
-
-    // Determine role & department
-    const role = inferRoleFromPosition(data.position);
-    const departmentId = await findDepartmentId(inferDepartmentFromPosition(data.position), user.schoolId);
-
-    const validSubjectIds = await filterValidSubjectIds(data.subjects, user.schoolId);
-
-    // Transaction ensures atomic creation
-    return await prisma.$transaction(async (tx) => {
-      const existingUser = await tx.user.findUnique({ where: { email: data.email } });
-      if (existingUser) return NextResponse.json({ error: "User with email exists" }, { status: 400 });
-
-      const hashedPassword = await bcrypt.hash(data.password, 10);
-
-      const newUser = await tx.user.create({
-        data: { name: data.name, email: data.email, password: hashedPassword, role, schoolId: user.schoolId },
-      });
-
-      const newStaff = await tx.staff.create({
-        data: {
-          userId: newUser.id,
-          position: data.position ?? "Teacher",
-          departmentId,
-          classId: requiresClass(data.position) ? data.classId ?? null : null,
-          salary: data.salary ?? null,
-          hireDate: data.hireDate ?? null,
-          subjects: validSubjectIds.length ? { connect: validSubjectIds.map((id) => ({ id })) } : undefined,
-        },
-        include: { user: true, class: true, department: true, subjects: true },
-      });
-
-      return NextResponse.json(newStaff, { status: 201 });
+      page: query.page || 1,
+      perPage: query.perPage || 10,
     });
   } catch (err: any) {
     if (err instanceof z.ZodError) return NextResponse.json({ error: err.flatten() }, { status: 400 });
@@ -168,15 +88,62 @@ export async function POST(req: NextRequest) {
   }
 }
 
-/* 
-Design reasoning:
-- GET: Efficient paginated listing with search & filter.
-- POST: Secure user creation + staff creation, multi-subject assignment, role/department inference.
-Structure:
-- Helpers handle department lookup and subject filtering for school scoping.
-- Transaction ensures atomic creation.
-Implementation guidance:
-- Send subjects as array of IDs; optional hireDate, salary, classId.
-Scalability:
-- Works with hundreds/thousands of subjects efficiently; dynamic filters prevent heavy queries.
-*/
+// ------------------------- POST: Create Staff -------------------------
+export async function POST(req: NextRequest) {
+  const authUser = await cookieUser();
+  if (!authUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  try {
+    const body = await req.json();
+    const data = staffCreateSchema.parse(body);
+
+    const user = await prisma.user.findFirst({ where: { id: data.userId, schoolId: authUser.schoolId } });
+    if (!user) return NextResponse.json({ error: "Referenced user not found in your school" }, { status: 400 });
+
+    if (requiresClass(data.position) && !data.classId)
+      return NextResponse.json({ error: { classId: ["Class is required for this position"] } }, { status: 400 });
+
+    if (requiresSubjects(data.position) && (!data.subjectIds || data.subjectIds.length === 0))
+      return NextResponse.json({ error: { subjectIds: ["At least one subject required"] } }, { status: 400 });
+
+    const createdStaff = await prisma.$transaction(async (tx) => {
+      const staff = await tx.staff.create({
+        data: {
+          userId: data.userId,
+          position: data.position,
+          department: data.department || inferDepartmentFromPosition(data.position),
+          salary: data.salary,
+          hireDate: new Date(data.hireDate),
+          classId: data.classId ?? null,
+          busId: data.busId ?? null,
+          subjects: data.subjectIds ? { connect: data.subjectIds.map((id) => ({ id })) } : undefined,
+          schoolId: authUser.schoolId,
+        },
+        include: { user: true, subjects: true, class: true },
+      });
+
+      // Example: could update related User record transactionally
+      // await tx.user.update({ where: { id: staff.userId }, data: { department: staff.department } });
+
+      return staff;
+    });
+
+    return NextResponse.json(createdStaff, { status: 201 });
+  } catch (err: any) {
+    if (err instanceof z.ZodError) return NextResponse.json({ error: err.flatten() }, { status: 400 });
+    return NextResponse.json({ error: err.message }, { status: 500 });
+  }
+}
+
+// ------------------------- Design reasoning → -------------------------
+// Full-featured Staff collection route supports filtering (search, department, class, subject, busId, hireDate, createdAt), pagination, sorting, debounce, transactional creation with multi-subject support, field-level error responses for inline form validation, and school scoping for security.
+
+// ------------------------- Structure → -------------------------
+// GET → list staff with filters, pagination, sorting, debounce
+// POST → create staff transactionally with validation, multi-subject connection, and optional busId/department/createdAt
+
+// ------------------------- Implementation guidance → -------------------------
+// Frontend calls GET with query filters; POST returns full staff object including user and subjects for optimistic updates. Extensible transaction blocks allow adding updates to related models (User, Class) without breaking API. Field-level errors support inline form validation.
+
+// ------------------------- Scalability insight → -------------------------
+// Easily extended with additional filters, transactional updates for related models, dynamic validations, and future optional fields (e.g., payroll, attendance). Supports school-scoped multi-tenancy and safe optimistic UI updates.

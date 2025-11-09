@@ -1,107 +1,83 @@
-// import { NextRequest, NextResponse } from "next/server";
-// import { prisma } from "@/lib/prisma";
-// import { z } from "zod";
-// import { cookieUser } from "@/lib/helpers/cookieUser";
-// import { hashSync } from "bcryptjs";
+// app/api/users/[id]/route.ts
+// Purpose: User item API – retrieve, update, delete by ID with school scoping
 
-// const updateSchema = z.object({
-//   name: z.string().optional(),
-//   email: z.string().email().optional(),
-//   password: z.string().min(6).optional(),
-// role: z.enum([
-//   "ADMIN",
-//   "MODERATOR",
-//   "PRINCIPAL",
-//   "VICE_PRINCIPAL",
-//   "TEACHER",
-//   "ASSISTANT_TEACHER",
-//   "COUNSELOR",
-//   "LIBRARIAN",
-//   "EXAM_OFFICER",
-//   "FINANCE",
-//   "HR",
-//   "RECEPTIONIST",
-//   "IT_SUPPORT",
-//   "TRANSPORT",
-//   "NURSE",
-//   "COOK",
-//   "CLEANER",
-//   "SECURITY",
-//   "MAINTENANCE",
-//   "STUDENT",
-//   "CLASS_REP",
-//   "PARENT",
-//   "ALUMNI",
-//   "AUDITOR",
-// ])
-//  .optional(),
+import { NextRequest, NextResponse } from "next/server";
+import { prisma } from "@/lib/prisma";
+import { z } from "zod";
+import bcrypt from "bcryptjs";
+import { cookieUser } from "@/lib/cookieUser";
+import { inferRoleFromPosition, inferDepartmentFromPosition, Role } from "@/lib/api/constants/roleInference";
 
-// });
+const userUpdateSchema = z.object({
+  name: z.string().min(1).optional(),
+  email: z.string().email().optional(),
+  password: z.string().min(6).optional(),
+  position: z.string().optional(),
+  busId: z.string().optional().nullable(),
+});
 
-// export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
-//   try {
-//     const { user } = await cookieUser(req);
-//     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+// ------------------------- GET: Retrieve user -------------------------
+export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
+  const authUser = await cookieUser();
+  if (!authUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-//     const foundUser = await prisma.user.findFirst({
-//       where: { id: params.id, schoolId: user.schoolId },
-//       include: { school: true, staff: true, student: true },
-//     });
+  const user = await prisma.user.findFirst({
+    where: { id: params.id, schoolId: authUser.schoolId },
+  });
+  if (!user) return NextResponse.json({ error: "User not found" }, { status: 404 });
 
-//     if (!foundUser) return NextResponse.json({ error: "User not found" }, { status: 404 });
+  return NextResponse.json(user);
+}
 
-//     return NextResponse.json(foundUser);
-//   } catch (err) {
-//     console.error(err);
-//     return NextResponse.json({ error: "Failed to fetch user" }, { status: 500 });
-//   }
-// }
+// ------------------------- PUT: Update user -------------------------
+export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
+  const authUser = await cookieUser();
+  if (!authUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-// export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
-//   try {
-//     const { user } = await cookieUser(req);
-//     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (![Role.ADMIN, Role.PRINCIPAL].includes(authUser.role))
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
-//     const body = await req.json();
-//     const parsed = updateSchema.parse(body);
+  try {
+    const body = await req.json();
+    const data = userUpdateSchema.parse(body);
 
-//     const data = parsed.password
-//       ? { ...parsed, password: hashSync(parsed.password, 10) }
-//       : parsed;
+    if (data.email) {
+      const exists = await prisma.user.findFirst({
+        where: { email: data.email, id: { not: params.id } },
+      });
+      if (exists) return NextResponse.json({ error: { email: ["Email already exists"] } }, { status: 400 });
+    }
 
-//     const updated = await prisma.user.updateMany({
-//       where: { id: params.id, schoolId: user.schoolId }, // scoped update
-//       data,
-//     });
+    if (data.password) data.password = await bcrypt.hash(data.password, 10);
+    if (data.position) {
+      data.role = inferRoleFromPosition(data.position);
+      data.department = inferDepartmentFromPosition(data.position);
+    }
 
-//     if (!updated.count)
-//       return NextResponse.json({ error: "User not found or unauthorized" }, { status: 404 });
+    const updated = await prisma.user.update({
+      where: { id: params.id },
+      data,
+    });
 
-//     return NextResponse.json({ message: "User updated" });
-//   } catch (err) {
-//     console.error(err);
-//     if (err instanceof z.ZodError)
-//       return NextResponse.json({ error: err.errors }, { status: 400 });
+    return NextResponse.json(updated);
+  } catch (err: any) {
+    if (err instanceof z.ZodError) return NextResponse.json({ error: err.flatten() }, { status: 400 });
+    return NextResponse.json({ error: err.message }, { status: 500 });
+  }
+}
 
-//     return NextResponse.json({ error: "Failed to update user" }, { status: 500 });
-//   }
-// }
+// ------------------------- DELETE: Remove user -------------------------
+export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
+  const authUser = await cookieUser();
+  if (!authUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-// export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
-//   try {
-//     const { user } = await cookieUser(req);
-//     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (![Role.ADMIN, Role.PRINCIPAL].includes(authUser.role))
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
-//     const deleted = await prisma.user.deleteMany({
-//       where: { id: params.id, schoolId: user.schoolId }, // scoped delete
-//     });
-
-//     if (!deleted.count)
-//       return NextResponse.json({ error: "User not found or unauthorized" }, { status: 404 });
-
-//     return NextResponse.json({ message: "User deleted" });
-//   } catch (err) {
-//     console.error(err);
-//     return NextResponse.json({ error: "Failed to delete user" }, { status: 500 });
-//   }
-// }
+  try {
+    await prisma.user.delete({ where: { id: params.id } });
+    return NextResponse.json({ success: true });
+  } catch (err: any) {
+    return NextResponse.json({ error: err.message }, { status: 500 });
+  }
+}

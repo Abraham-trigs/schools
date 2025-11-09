@@ -2,9 +2,9 @@
 // Purpose: Return authenticated user with minimal role info, school domain, and optional department
 
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/db";
-import { cookieUser } from "@/lib/cookieUser";
-import { inferRoleFromPosition, inferDepartmentFromPosition } from "@/lib/api/constants/roleInference";
+import { prisma } from "@lib/db.ts";
+import { cookieUser } from "@lib/cookieUser.ts";
+import { inferRoleFromPosition, inferDepartmentFromPosition } from "../../../../lib/api/constants/roleInference.ts";
 
 export async function GET() {
   try {

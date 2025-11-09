@@ -4,10 +4,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
-import { prisma } from "@/lib/db";
-import { signJwt } from "@/lib/jwt";
-import { COOKIE_NAME, COOKIE_OPTIONS } from "@/lib/cookies";
-import { inferRoleFromPosition, inferDepartmentFromPosition } from "@/lib/api/constants/roleInference";
+import { prisma } from "@lib/db.ts";
+import { signJwt } from "@lib/jwt.ts";
+import { COOKIE_NAME, COOKIE_OPTIONS } from "@lib/cookies.ts";
+import { inferRoleFromPosition, inferDepartmentFromPosition } from "@lib/api/constants/roleInference.ts";
 
 const loginSchema = z.object({
   email: z.string().email(),

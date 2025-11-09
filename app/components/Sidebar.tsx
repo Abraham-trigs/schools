@@ -17,8 +17,8 @@ import {
   FileText,
   Archive,
 } from "lucide-react";
-import { useSidebarStore } from "@/app/store/useSidebarStore";
-import { useUserStore } from "@/app/store/useUserStore";
+import { useSidebarStore } from "@/store/useSidebarStore.ts";
+import { useUserStore } from "@/store/useUserStore.ts";
 
 export type Role = "ADMIN" | "TEACHER" | "STUDENT" | "PARENT";
 

@@ -7,7 +7,7 @@ import { useRouter } from "next/navigation";
 import AddStaffModal from "./components/AddStaffModal";
 import EditStaffModal from "./components/EditStaffModal";
 import ConfirmDeleteModal from "./components/ConfirmDeleteModal";
-import { useStaffStore, Staff } from "@/app/store/useStaffStore";
+import { useStaffStore, Staff } from "@/store/useStaffStore.ts";
 
 export default function StaffPage() {
   const router = useRouter();

@@ -1,5 +1,6 @@
 // src/lib/api/client.ts
-import { notify } from "@/lib/helpers/notifications.ts";
+import { notify } from "./helpers/notifications.ts";
+
 
 export async function apiClient<T>(
   url: string,

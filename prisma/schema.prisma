@@ -370,3 +370,211 @@ model Bus {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 }
+
+// ---------------------------
+// Core User / Abraham
+// ---------------------------
+model Abraham {
+  id        String   @id @default(cuid())
+  name      String
+  email     String   @unique
+  password  String
+  role      UserRole
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  projects     Project[]
+  tasks        Task[]
+  milestones   Milestone[]
+  aiContents   AIContent[]
+  goals        Goal[]
+  chatSessions ChatSession[]
+  aiActions    AIAction[]
+  cvs          AbrahamCV[]
+}
+
+enum UserRole {
+  ADMIN
+  MODERATOR
+  USER
+}
+
+// ---------------------------
+// Goals & Projects
+// ---------------------------
+model Goal {
+  id          String     @id @default(cuid())
+  title       String
+  description String
+  status      GoalStatus @default(ACTIVE)
+  dueDate     DateTime?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  owner   Abraham @relation(fields: [ownerId], references: [id])
+  ownerId String
+
+  projects  Project[]
+  sessions  ChatSession[]
+  AbrahamCV AbrahamCV[]
+}
+
+enum GoalStatus {
+  ACTIVE
+  PAUSED
+  COMPLETED
+}
+
+model Project {
+  id          String        @id @default(cuid())
+  title       String
+  description String
+  demoUrl     String?
+  stack       String
+  status      ProjectStatus @default(ACTIVE)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  owner   Abraham @relation(fields: [ownerId], references: [id])
+  ownerId String
+
+  goal   Goal?   @relation(fields: [goalId], references: [id])
+  goalId String?
+
+  tasks      Task[]
+  milestones Milestone[]
+}
+
+enum ProjectStatus {
+  ACTIVE
+  PAUSED
+  COMPLETED
+}
+
+// ---------------------------
+// Tasks & Milestones
+// ---------------------------
+model Task {
+  id          String      @id @default(cuid())
+  project     Project     @relation(fields: [projectId], references: [id])
+  projectId   String
+  title       String
+  description String
+  status      TaskStatus  @default(TODO)
+  priority    Int         @default(3)
+  milestone   Milestone?  @relation(fields: [milestoneId], references: [id])
+  milestoneId String?
+  aiContent   AIContent[]
+
+  owner   Abraham @relation(fields: [ownerId], references: [id])
+  ownerId String
+}
+
+enum TaskStatus {
+  TODO
+  IN_PROGRESS
+  DONE
+}
+
+model Milestone {
+  id            String   @id @default(cuid())
+  project       Project  @relation(fields: [projectId], references: [id])
+  projectId     String
+  title         String
+  dueDate       DateTime
+  completed     Boolean  @default(false)
+  paymentAmount Float
+  tasks         Task[]
+
+  owner   Abraham @relation(fields: [ownerId], references: [id])
+  ownerId String
+}
+
+// ---------------------------
+// AI Content & Actions
+// ---------------------------
+model AIContent {
+  id        String   @id @default(cuid())
+  task      Task     @relation(fields: [taskId], references: [id])
+  taskId    String
+  content   String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  owner   Abraham @relation(fields: [ownerId], references: [id])
+  ownerId String
+}
+
+model AIAction {
+  id        String       @id @default(cuid())
+  session   ChatSession  @relation(fields: [sessionId], references: [id])
+  sessionId String
+  message   ChatMessage? @relation(fields: [messageId], references: [id])
+  messageId String? // optional link to ChatMessage for undo
+  type      AIActionType
+  payload   Json
+  createdAt DateTime     @default(now())
+  Abraham   Abraham?     @relation(fields: [abrahamId], references: [id])
+  abrahamId String?
+}
+
+enum AIActionType {
+  SUBMIT_CV
+  ALLOCATE_FUNDS
+  CREATE_TASK
+  ASK_QUESTION
+}
+
+// ---------------------------
+// CVs
+// ---------------------------
+model AbrahamCV {
+  id        String   @id @default(cuid())
+  user      Abraham  @relation(fields: [userId], references: [id])
+  userId    String
+  goal      Goal?    @relation(fields: [goalId], references: [id])
+  goalId    String?
+  content   String
+  updatedAt DateTime @updatedAt
+}
+
+// ---------------------------
+// Chat Sessions & Messages
+// ---------------------------
+model ChatSession {
+  id        String        @id @default(cuid())
+  goal      Goal?         @relation(fields: [goalId], references: [id])
+  goalId    String?
+  owner     Abraham       @relation(fields: [ownerId], references: [id])
+  ownerId   String
+  messages  ChatMessage[]
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+  AIAction  AIAction[]
+}
+
+model ChatMessage {
+  id            String        @id @default(cuid())
+  session       ChatSession   @relation(fields: [sessionId], references: [id])
+  sessionId     String
+  sender        SenderType
+  type          MessageType
+  content       String
+  actionType    AIActionType? // optional, only for ACTION
+  actionPayload Json? // optional JSON payload for ACTION
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  AIAction      AIAction[]
+}
+
+enum SenderType {
+  USER
+  AI
+}
+
+enum MessageType {
+  USER
+  AI
+  QUESTION
+  ACTION
+}

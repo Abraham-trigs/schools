@@ -1,13 +1,14 @@
 // app/store/useStaffStore.ts
-// Purpose: Zustand store for managing Staff data, including CRUD, pagination, search (debounced), and cache for performance.
+// Purpose: Zustand store for managing Staff data, including CRUD operations, pagination, and redirect support after deletion.
 
 "use client";
 
 import { create } from "zustand";
 import { debounce } from "lodash";
 import { apiClient } from "@/lib/apiClient";
+import { useClassesStore } from "./useClassesStore";
 
-// ------------------------- Types -------------------------
+// --- Types ---
 export interface Staff {
   id: string;
   userId: string;
@@ -64,7 +65,7 @@ interface StaffState {
   totalPages: () => number;
 }
 
-// ------------------------- Store -------------------------
+// --- Store Definition ---
 export const useStaffStore = create<StaffState>((set, get) => {
   const fetchStaffDebounced = debounce((page?: number, search?: string) => {
     get().fetchStaff(page, search);
@@ -90,7 +91,7 @@ export const useStaffStore = create<StaffState>((set, get) => {
 
     setSelectedStaff: (staff) => set({ selectedStaff: staff }),
 
-    // ------------------------- Fetch paginated staff -------------------------
+    // --- Fetch paginated staff list ---
     fetchStaff: async (page = get().page, search = get().search) => {
       const cached = get().cache[page];
       if (cached && !search) {
@@ -117,7 +118,7 @@ export const useStaffStore = create<StaffState>((set, get) => {
 
     fetchStaffDebounced,
 
-    // ------------------------- Fetch individual staff -------------------------
+    // --- Fetch individual staff ---
     fetchStaffById: async (id: string) => {
       set({ loading: true, error: null });
       try {
@@ -141,7 +142,7 @@ export const useStaffStore = create<StaffState>((set, get) => {
       }
     },
 
-    // ------------------------- Create staff -------------------------
+    // --- Create staff ---
     createStaff: async (userPayload, staffPayload) => {
       set({ loading: true, error: null });
       try {
@@ -162,7 +163,7 @@ export const useStaffStore = create<StaffState>((set, get) => {
       }
     },
 
-    // ------------------------- Update staff in store (optimistic) -------------------------
+    // --- Update staff in store (optimistic) ---
     updateStaff: (id, data) => {
       set((state) => {
         const updatedList = state.staffList.map((s) =>
@@ -185,7 +186,7 @@ export const useStaffStore = create<StaffState>((set, get) => {
       });
     },
 
-    // ------------------------- Delete staff with callback -------------------------
+    // --- Delete staff with callback ---
     deleteStaff: async (id: string, onDeleted?: () => void) => {
       set({ loading: true, error: null });
       try {
@@ -205,7 +206,7 @@ export const useStaffStore = create<StaffState>((set, get) => {
               ])
             ),
           }));
-          if (onDeleted) onDeleted();
+          if (onDeleted) onDeleted(); // callback safely after state update
         } else {
           set({ error: res.error?.message || "Failed to delete staff" });
         }
@@ -219,16 +220,3 @@ export const useStaffStore = create<StaffState>((set, get) => {
     totalPages: () => Math.ceil(get().total / get().perPage),
   };
 });
-
-/* Design reasoning:
-- Debounced search + cache ensures performant and responsive UI when navigating pages or filtering staff.
-- Optimistic updates for create, update, and delete improve perceived speed and reduce flicker.
-Structure:
-- fetchStaff / fetchStaffDebounced: paginated fetching with caching.
-- fetchStaffById: fetch individual staff with store sync.
-- createStaff / updateStaff / deleteStaff: full CRUD operations.
-Implementation guidance:
-- Integrate into staff management pages, connect search input to setSearch, use totalPages() for pagination controls.
-Scalability insight:
-- Store can extend to include role or department filters, and support bulk actions without changing core structure.
-*/

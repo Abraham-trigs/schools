@@ -1,6 +1,5 @@
 // app/dashboard/staff/components/AddStaffModal.tsx
-// Purpose: Modal form to create new staff; supports multi-subject selection, infers role/department/class automatically,
-//          posts via Zustand store (useStaffStore), supports optimistic UI and school scoping.
+// Modal form to create new staff; infers role/department/class automatically and posts to API with hashed password
 
 "use client";
 
@@ -11,19 +10,17 @@ import {
   DialogPanel,
   DialogTitle,
 } from "@headlessui/react";
-import { useForm, Controller } from "react-hook-form";
+import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useStaffStore } from "@/app/store/useStaffStore";
 import { useClassesStore } from "@/app/store/useClassesStore";
-import { useSubjectStore } from "@/app/store/subjectStore.ts";
 import {
   roleToDepartment,
   roleRequiresClass,
   positionRoleMap,
   inferRoleFromPosition,
 } from "@/lib/api/constants/roleInference";
-import Select from "react-select";
 
 // ---------------------- Schema ----------------------
 const staffSchema = z.object({
@@ -33,7 +30,7 @@ const staffSchema = z.object({
   position: z.string().min(1, "Position is required"),
   department: z.string().optional(),
   salary: z.coerce.number().optional(),
-  subjects: z.array(z.string()).optional(),
+  subject: z.string().optional(),
   classId: z.string().optional().nullable(),
 });
 
@@ -48,14 +45,12 @@ interface AddStaffModalProps {
 export default function AddStaffModal({ isOpen, onClose }: AddStaffModalProps) {
   const { createStaff, loading: isLoading } = useStaffStore();
   const { classes, fetchClasses } = useClassesStore();
-  const { subjects, fetchSubjects } = useSubjectStore();
 
   const {
     register,
     handleSubmit,
     watch,
     reset,
-    control,
     formState: { errors },
   } = useForm<StaffFormValues>({
     resolver: zodResolver(staffSchema),
@@ -66,27 +61,23 @@ export default function AddStaffModal({ isOpen, onClose }: AddStaffModalProps) {
       position: "",
       department: "",
       salary: undefined,
-      subjects: [],
+      subject: "",
       classId: undefined,
     },
   });
 
   const position = watch("position");
 
-  // ---------------------- Fetch classes & subjects when modal opens ----------------------
+  // ---------------------- Fetch classes on open ----------------------
   useEffect(() => {
-    if (isOpen) {
-      fetchClasses();
-      fetchSubjects();
-    }
-  }, [isOpen, fetchClasses, fetchSubjects]);
+    if (isOpen) fetchClasses();
+  }, [isOpen, fetchClasses]);
 
-  // ---------------------- Auto-fill department based on role ----------------------
+  // ---------------------- Auto-fill department ----------------------
   useEffect(() => {
     if (position) {
-      const inferredRole = inferRoleFromPosition(position);
-      const inferredDept = inferredRole
-        ? roleToDepartment[inferredRole]
+      const inferredDept = inferRoleFromPosition(position)
+        ? roleToDepartment[inferRoleFromPosition(position)]
         : undefined;
       if (inferredDept)
         reset((prev) => ({ ...prev, department: inferredDept }));
@@ -104,7 +95,7 @@ export default function AddStaffModal({ isOpen, onClose }: AddStaffModalProps) {
     const userPayload = {
       name: data.name,
       email: data.email,
-      password: data.password,
+      password: data.password, // Will be hashed by the backend
       role,
     };
 
@@ -113,7 +104,7 @@ export default function AddStaffModal({ isOpen, onClose }: AddStaffModalProps) {
       department: data.department || roleToDepartment[role],
       classId: data.classId ?? null,
       salary: data.salary ?? null,
-      subjects: data.subjects ?? [],
+      subject: data.subject ?? null,
     };
 
     await createStaff(userPayload, staffPayload);
@@ -123,10 +114,6 @@ export default function AddStaffModal({ isOpen, onClose }: AddStaffModalProps) {
   };
 
   const positions = Object.keys(positionRoleMap);
-  const subjectOptions = subjects.map((s) => ({
-    value: s.name,
-    label: s.name,
-  }));
 
   // ---------------------- Render ----------------------
   return (
@@ -219,28 +206,16 @@ export default function AddStaffModal({ isOpen, onClose }: AddStaffModalProps) {
               />
             </div>
 
-            {/* Subjects - Multi Select */}
+            {/* Subject */}
             <div>
-              <label className="block text-sm font-medium">Subjects</label>
-              <Controller
-                control={control}
-                name="subjects"
-                render={({ field: { onChange, value } }) => (
-                  <Select
-                    isMulti
-                    options={subjectOptions}
-                    value={subjectOptions.filter((s) =>
-                      value?.includes(s.value)
-                    )}
-                    onChange={(selected) =>
-                      onChange(selected.map((s) => s.value))
-                    }
-                  />
-                )}
+              <label className="block text-sm font-medium">Subject</label>
+              <input
+                {...register("subject")}
+                className="mt-1 w-full rounded-md border px-3 py-2"
               />
             </div>
 
-            {/* Class (conditionally rendered) */}
+            {/* Class */}
             {requiresClass && (
               <div>
                 <label className="block text-sm font-medium">Class</label>
@@ -281,22 +256,3 @@ export default function AddStaffModal({ isOpen, onClose }: AddStaffModalProps) {
     </Dialog>
   );
 }
-
-/* Design reasoning:
-- Uses Zustand stores for subjects, classes, and staff to maintain consistent state across the dashboard.
-- Multi-select for subjects improves UX for teachers handling multiple subjects and reduces manual errors.
-- Auto-fills department and conditionally renders class dropdown based on position for clarity and efficiency.
-
-Structure:
-- Main exported component: AddStaffModal
-- Form with react-hook-form + Zod validation
-- Controller used for multi-select subject integration
-- Form reset on modal close or successful submit
-
-Implementation guidance:
-- Ensure `fetchSubjects()` and `fetchClasses()` are invoked on modal open to populate selects.
-- Can extend to bulk assignment or role-specific logic.
-
-Scalability insight:
-- Multi-select pattern allows extending to other relational fields (skills, certifications) without changing core modal logic.
-*/

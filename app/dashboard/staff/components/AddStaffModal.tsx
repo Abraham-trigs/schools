@@ -1,9 +1,6 @@
-// app/dashboard/staff/components/AddStaffModal.tsx
-// Modal form to create new staff; infers role/department/class automatically and posts to API with hashed password
-
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import {
   Dialog,
   DialogBackdrop,
@@ -13,20 +10,24 @@ import {
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useStaffStore } from "@/app/store/useStaffStore";
-import { useClassesStore } from "@/app/store/useClassesStore";
+import { useClassesStore } from "@/app/store/useClassesStore.ts";
+import { useStaffStore } from "@/app/store/useStaffStore.ts";
+
 import {
   roleToDepartment,
   roleRequiresClass,
   positionRoleMap,
   inferRoleFromPosition,
-} from "@/lib/api/constants/roleInference";
+} from "@/lib/api/constants/roleInference.ts";
 
-// ---------------------- Schema ----------------------
-const staffSchema = z.object({
+// -------------------- Schemas --------------------
+const userSchema = z.object({
   name: z.string().min(1, "Name is required"),
   email: z.string().email("Invalid email"),
-  password: z.string().min(6, "Minimum 6 characters"),
+  password: z.string().min(6, "Password must be at least 6 characters"),
+});
+
+const staffSchema = z.object({
   position: z.string().min(1, "Position is required"),
   department: z.string().optional(),
   salary: z.coerce.number().optional(),
@@ -34,6 +35,7 @@ const staffSchema = z.object({
   classId: z.string().optional().nullable(),
 });
 
+type UserFormValues = z.infer<typeof userSchema>;
 type StaffFormValues = z.infer<typeof staffSchema>;
 
 interface AddStaffModalProps {
@@ -41,23 +43,24 @@ interface AddStaffModalProps {
   onClose: () => void;
 }
 
-// ---------------------- Modal Component ----------------------
 export default function AddStaffModal({ isOpen, onClose }: AddStaffModalProps) {
-  const { createStaff, loading: isLoading } = useStaffStore();
+  const { createUser, createStaffRecord, loading: isLoading } = useStaffStore();
   const { classes, fetchClasses } = useClassesStore();
 
-  const {
-    register,
-    handleSubmit,
-    watch,
-    reset,
-    formState: { errors },
-  } = useForm<StaffFormValues>({
+  const [step, setStep] = useState<1 | 2>(1);
+  const [userData, setUserData] = useState<{ id: string; role: string } | null>(
+    null
+  );
+  const [apiError, setApiError] = useState<string | null>(null);
+
+  const userForm = useForm<UserFormValues>({
+    resolver: zodResolver(userSchema),
+    defaultValues: { name: "", email: "", password: "" },
+  });
+
+  const staffForm = useForm<StaffFormValues>({
     resolver: zodResolver(staffSchema),
     defaultValues: {
-      name: "",
-      email: "",
-      password: "",
       position: "",
       department: "",
       salary: undefined,
@@ -66,56 +69,79 @@ export default function AddStaffModal({ isOpen, onClose }: AddStaffModalProps) {
     },
   });
 
-  const position = watch("position");
-
-  // ---------------------- Fetch classes on open ----------------------
-  useEffect(() => {
-    if (isOpen) fetchClasses();
-  }, [isOpen, fetchClasses]);
-
-  // ---------------------- Auto-fill department ----------------------
-  useEffect(() => {
-    if (position) {
-      const inferredDept = inferRoleFromPosition(position)
-        ? roleToDepartment[inferRoleFromPosition(position)]
-        : undefined;
-      if (inferredDept)
-        reset((prev) => ({ ...prev, department: inferredDept }));
-    }
-  }, [position, reset]);
-
+  const position = staffForm.watch("position");
   const requiresClass = position
     ? roleRequiresClass.includes(inferRoleFromPosition(position))
     : false;
 
-  // ---------------------- Submit handler ----------------------
-  const onSubmit = async (data: StaffFormValues) => {
-    const role = inferRoleFromPosition(data.position);
+  // Fetch classes when modal opens
+  useEffect(() => {
+    if (isOpen) fetchClasses();
+  }, [isOpen, fetchClasses]);
 
-    const userPayload = {
-      name: data.name,
-      email: data.email,
-      password: data.password, // Will be hashed by the backend
-      role,
-    };
+  // Auto-fill department on position change
+  useEffect(() => {
+    if (position && step === 2) {
+      const role = inferRoleFromPosition(position);
+      staffForm.setValue("department", roleToDepartment[role]);
+    }
+  }, [position, staffForm, step]);
 
-    const staffPayload = {
-      position: data.position,
-      department: data.department || roleToDepartment[role],
-      classId: data.classId ?? null,
-      salary: data.salary ?? null,
-      subject: data.subject ?? null,
-    };
+  // -------------------- Handlers --------------------
+  const handleUserSubmit = async (data: UserFormValues) => {
+    setApiError(null);
+    try {
+      const createdUser = await createUser({
+        name: data.name,
+        email: data.email,
+        password: data.password,
+      });
 
-    await createStaff(userPayload, staffPayload);
+      if (createdUser) {
+        setUserData({ id: createdUser.id, role: "" }); // role will be inferred in staff step
+        setStep(2);
+      } else {
+        setApiError("Failed to create user. Please try again.");
+      }
+    } catch (err: any) {
+      setApiError(err?.message || "Unexpected error creating user");
+    }
+  };
 
-    reset();
-    onClose();
+  const handleStaffSubmit = async (data: StaffFormValues) => {
+    if (!userData) return;
+    setApiError(null);
+
+    try {
+      const role = inferRoleFromPosition(data.position);
+      const createdStaff = await createStaffRecord({
+        userId: userData.id,
+        position: data.position,
+        department: data.department || roleToDepartment[role],
+        salary: data.salary ?? null,
+        subject: data.subject ?? null,
+        classId: data.classId ?? null,
+      });
+
+      if (!createdStaff) {
+        setApiError("Failed to create staff. Please try again.");
+        return;
+      }
+
+      // Reset forms & state
+      userForm.reset();
+      staffForm.reset();
+      setStep(1);
+      setUserData(null);
+      onClose();
+    } catch (err: any) {
+      setApiError(err?.message || "Unexpected error creating staff");
+    }
   };
 
   const positions = Object.keys(positionRoleMap);
 
-  // ---------------------- Render ----------------------
+  // -------------------- Render --------------------
   return (
     <Dialog open={isOpen} onClose={onClose} className="relative z-50">
       <DialogBackdrop className="fixed inset-0 bg-black/30" />
@@ -125,132 +151,141 @@ export default function AddStaffModal({ isOpen, onClose }: AddStaffModalProps) {
             Add New Staff
           </DialogTitle>
 
-          <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-            {/* Name */}
-            <div>
-              <label className="block text-sm font-medium">Full Name</label>
-              <input
-                {...register("name")}
-                className="mt-1 w-full rounded-md border px-3 py-2"
-              />
-              {errors.name && (
-                <p className="text-sm text-red-500">{errors.name.message}</p>
-              )}
-            </div>
+          {step === 1 && (
+            <form
+              onSubmit={userForm.handleSubmit(handleUserSubmit)}
+              className="space-y-4"
+            >
+              {apiError && <p className="text-sm text-red-600">{apiError}</p>}
 
-            {/* Email */}
-            <div>
-              <label className="block text-sm font-medium">Email</label>
-              <input
-                {...register("email")}
-                className="mt-1 w-full rounded-md border px-3 py-2"
-              />
-              {errors.email && (
-                <p className="text-sm text-red-500">{errors.email.message}</p>
-              )}
-            </div>
-
-            {/* Password */}
-            <div>
-              <label className="block text-sm font-medium">Password</label>
-              <input
-                type="password"
-                {...register("password")}
-                className="mt-1 w-full rounded-md border px-3 py-2"
-              />
-              {errors.password && (
-                <p className="text-sm text-red-500">
-                  {errors.password.message}
-                </p>
-              )}
-            </div>
-
-            {/* Position */}
-            <div>
-              <label className="block text-sm font-medium">Position</label>
-              <select
-                {...register("position")}
-                className="mt-1 w-full rounded-md border px-3 py-2"
-              >
-                <option value="">Select role</option>
-                {positions.map((pos) => (
-                  <option key={pos} value={pos}>
-                    {pos.replace(/_/g, " ")}
-                  </option>
-                ))}
-              </select>
-              {errors.position && (
-                <p className="text-sm text-red-500">
-                  {errors.position.message}
-                </p>
-              )}
-            </div>
-
-            {/* Department */}
-            <div>
-              <label className="block text-sm font-medium">Department</label>
-              <input
-                {...register("department")}
-                className="mt-1 w-full rounded-md border px-3 py-2"
-              />
-            </div>
-
-            {/* Salary */}
-            <div>
-              <label className="block text-sm font-medium">Salary</label>
-              <input
-                type="number"
-                step="0.01"
-                {...register("salary")}
-                className="mt-1 w-full rounded-md border px-3 py-2"
-              />
-            </div>
-
-            {/* Subject */}
-            <div>
-              <label className="block text-sm font-medium">Subject</label>
-              <input
-                {...register("subject")}
-                className="mt-1 w-full rounded-md border px-3 py-2"
-              />
-            </div>
-
-            {/* Class */}
-            {requiresClass && (
               <div>
-                <label className="block text-sm font-medium">Class</label>
+                <label className="block text-sm font-medium">Full Name</label>
+                <input
+                  {...userForm.register("name")}
+                  className="mt-1 w-full rounded-md border px-3 py-2"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium">Email</label>
+                <input
+                  {...userForm.register("email")}
+                  className="mt-1 w-full rounded-md border px-3 py-2"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium">Password</label>
+                <input
+                  type="password"
+                  {...userForm.register("password")}
+                  className="mt-1 w-full rounded-md border px-3 py-2"
+                />
+              </div>
+
+              <div className="flex justify-end gap-3 pt-4">
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="rounded-md border px-4 py-2"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isLoading}
+                  className="rounded-md bg-blue-600 px-4 py-2 text-white hover:bg-blue-700 disabled:opacity-50"
+                >
+                  Next
+                </button>
+              </div>
+            </form>
+          )}
+
+          {step === 2 && (
+            <form
+              onSubmit={staffForm.handleSubmit(handleStaffSubmit)}
+              className="space-y-4"
+            >
+              {apiError && <p className="text-sm text-red-600">{apiError}</p>}
+
+              <div>
+                <label className="block text-sm font-medium">Position</label>
                 <select
-                  {...register("classId")}
+                  {...staffForm.register("position")}
                   className="mt-1 w-full rounded-md border px-3 py-2"
                 >
-                  <option value="">Select class</option>
-                  {classes.map((cls) => (
-                    <option key={cls.id} value={cls.id}>
-                      {cls.name}
+                  <option value="">Select position</option>
+                  {positions.map((pos) => (
+                    <option key={pos} value={pos}>
+                      {pos.replace(/_/g, " ")}
                     </option>
                   ))}
                 </select>
               </div>
-            )}
 
-            {/* Buttons */}
-            <div className="flex justify-end gap-3 pt-4">
-              <button
-                type="button"
-                onClick={onClose}
-                className="rounded-md border px-4 py-2"
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                disabled={isLoading}
-                className="rounded-md bg-blue-600 px-4 py-2 text-white hover:bg-blue-700 disabled:opacity-50"
-              >
-                {isLoading ? "Saving..." : "Create Staff"}
-              </button>
-            </div>
-          </form>
+              <div>
+                <label className="block text-sm font-medium">Department</label>
+                <input
+                  {...staffForm.register("department")}
+                  className="mt-1 w-full rounded-md border px-3 py-2"
+                  readOnly
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium">Salary</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  {...staffForm.register("salary")}
+                  className="mt-1 w-full rounded-md border px-3 py-2"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium">Subject</label>
+                <input
+                  {...staffForm.register("subject")}
+                  className="mt-1 w-full rounded-md border px-3 py-2"
+                />
+              </div>
+
+              {requiresClass && (
+                <div>
+                  <label className="block text-sm font-medium">Class</label>
+                  <select
+                    {...staffForm.register("classId")}
+                    className="mt-1 w-full rounded-md border px-3 py-2"
+                  >
+                    <option value="">Select class</option>
+                    {classes.map((cls) => (
+                      <option key={cls.id} value={cls.id}>
+                        {cls.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              <div className="flex justify-end gap-3 pt-4">
+                <button
+                  type="button"
+                  onClick={() => setStep(1)}
+                  className="rounded-md border px-4 py-2"
+                >
+                  Back
+                </button>
+                <button
+                  type="submit"
+                  disabled={isLoading}
+                  className="rounded-md bg-blue-600 px-4 py-2 text-white hover:bg-blue-700 disabled:opacity-50"
+                >
+                  Create Staff
+                </button>
+              </div>
+            </form>
+          )}
         </DialogPanel>
       </div>
     </Dialog>

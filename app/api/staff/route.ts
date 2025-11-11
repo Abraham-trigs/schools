@@ -1,118 +1,99 @@
-// app/api/staff/route.ts
-// Handles listing and creating Staff with auth, validation, role & department inference, class assignment, and hashed password
+// app/api/users/route.ts
+// Purpose: User API – full CRUD, search, filter, sort, pagination, debounced search (role applied only at Staff)
 
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma.ts";
-import { z } from "zod";
-import { cookieUser } from "@/lib/cookieUser.ts";
-import { inferRoleFromPosition, inferDepartmentFromPosition, requiresClass } from "@/lib/api/constants/roleInference.ts";
 import bcrypt from "bcryptjs";
+import { z } from "zod";
+import { Role } from "@/lib/db.ts";
+import { cookieUser } from '@/lib/cookieUser.ts';
 
-// Validation schema
-const staffSchema = z.object({
-  name: z.string().min(1, "Name is required"),
-  email: z.string().email("Invalid email"),
-  position: z.string().optional().nullable(),
-  classId: z.string().optional().nullable(),
-  salary: z.preprocess(
-    (val) => (val === "" ? null : Number(val)),
-    z.number().nullable().optional()
-  ),
-  subject: z.string().optional().nullable(),
-  hireDate: z.preprocess(
-    (val) => (val ? new Date(val as string) : null),
-    z.date().nullable().optional()
-  ),
-  password: z.string().min(6, "Password must be at least 6 characters"),
+// ------------------------- Schemas -------------------------
+const userCreateSchema = z.object({
+  name: z.string().min(1),
+  email: z.string().email(),
+  password: z.string().min(6),
+  busId: z.string().optional().nullable(),
 });
 
-// GET: list staff with optional search & pagination
+const userQuerySchema = z.object({
+  search: z.string().optional(),
+  department: z.string().optional(),
+  page: z.preprocess((val) => Number(val), z.number().min(1)).optional(),
+  perPage: z.preprocess((val) => Number(val), z.number().min(1).max(100)).optional(),
+  sortBy: z.string().optional(),
+  sortOrder: z.enum(["asc", "desc"]).optional(),
+  debounce: z.preprocess((val) => Number(val), z.number().min(0)).optional(),
+});
+
+// ------------------------- GET: List Users -------------------------
 export async function GET(req: NextRequest) {
-  const user = await cookieUser(req);
-  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const authUser = await cookieUser();
+  if (!authUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const url = new URL(req.url);
-  const search = url.searchParams.get("search") || "";
-  const page = Number(url.searchParams.get("page") || 1);
-  const perPage = Number(url.searchParams.get("perPage") || 10);
+  try {
+    const url = new URL(req.url);
+    const query = userQuerySchema.parse(Object.fromEntries(url.searchParams));
 
-  const where = search
-    ? {
-        OR: [
-          { user: { name: { contains: search, mode: "insensitive" } } },
-          { user: { email: { contains: search, mode: "insensitive" } } },
-        ],
-      }
-    : {};
+    if (query.debounce) await new Promise((res) => setTimeout(res, query.debounce));
 
-  const [staffList, total] = await prisma.$transaction([
-    prisma.staff.findMany({
+    const where: any = { schoolId: authUser.schoolId };
+    if (query.search) where.name = { contains: query.search, mode: "insensitive" };
+    if (query.department) where.department = query.department;
+
+    const total = await prisma.user.count({ where });
+
+    const orderBy: any = {};
+    if (query.sortBy) orderBy[query.sortBy] = query.sortOrder || "asc";
+
+    const users = await prisma.user.findMany({
       where,
-      include: { user: true, class: true, department: true },
-      skip: (page - 1) * perPage,
-      take: perPage,
-      orderBy: { createdAt: "desc" },
-    }),
-    prisma.staff.count({ where }),
-  ]);
+      skip: ((query.page || 1) - 1) * (query.perPage || 10),
+      take: query.perPage || 10,
+      orderBy: orderBy || { name: "asc" },
+    });
 
-  return NextResponse.json({ staffList, total, page });
+    return NextResponse.json({
+      users,
+      total,
+      page: query.page || 1,
+      perPage: query.perPage || 10,
+    });
+  } catch (err: any) {
+    if (err instanceof z.ZodError) return NextResponse.json({ error: err.flatten() }, { status: 400 });
+    return NextResponse.json({ error: err.message }, { status: 500 });
+  }
 }
 
-// POST: create new staff
+// ------------------------- POST: Create User -------------------------
 export async function POST(req: NextRequest) {
-  const user = await cookieUser(req);
-  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const authUser = await cookieUser();
+  if (!authUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (![Role.ADMIN, Role.PRINCIPAL].includes(authUser.role))
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   try {
     const body = await req.json();
-    const data = staffSchema.parse(body);
+    const data = userCreateSchema.parse(body);
 
-    // Infer role and department
-    const role = inferRoleFromPosition(data.position);
-    const departmentName = inferDepartmentFromPosition(data.position);
+    const existing = await prisma.user.findUnique({ where: { email: data.email } });
+    if (existing) return NextResponse.json({ error: { email: ["Email already exists"] } }, { status: 400 });
 
-    // Fetch department ID if exists
-    const department = departmentName
-      ? await prisma.department.findUnique({ where: { name: departmentName } })
-      : null;
+    const hashedPassword = await bcrypt.hash(data.password, 10);
 
-    return await prisma.$transaction(async (tx) => {
-      const existingUser = await tx.user.findUnique({ where: { email: data.email } });
-      if (existingUser) return NextResponse.json({ error: "User with email exists" }, { status: 400 });
-
-      // Hash password before storing
-      const hashedPassword = await bcrypt.hash(data.password, 10);
-
-      const newUser = await tx.user.create({
-        data: {
-          name: data.name,
-          email: data.email,
-          password: hashedPassword,
-          role,
-          schoolId: user.schoolId,
-        },
-      });
-
-      const newStaff = await tx.staff.create({
-        data: {
-          userId: newUser.id,
-          position: data.position || "Teacher",
-          departmentId: department?.id ?? null,
-          classId: requiresClass(data.position) ? data.classId : null,
-          salary: data.salary ?? null,
-          subject: data.subject ?? null,
-          hireDate: data.hireDate ?? null,
-        },
-        include: { user: true, class: true, department: true },
-      });
-
-      return NextResponse.json(newStaff, { status: 201 });
+    const newUser = await prisma.user.create({
+      data: {
+        name: data.name,
+        email: data.email,
+        password: hashedPassword,
+        busId: data.busId || null,
+        schoolId: authUser.schoolId,
+      },
     });
+
+    return NextResponse.json(newUser, { status: 201 });
   } catch (err: any) {
-    if (err instanceof z.ZodError) {
-      return NextResponse.json({ error: err.flatten() }, { status: 400 });
-    }
+    if (err instanceof z.ZodError) return NextResponse.json({ error: err.flatten() }, { status: 400 });
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
 }

@@ -1,12 +1,11 @@
 // app/dashboard/layout.tsx
-// Purpose: Fixed Sidebar + Topbar; handles auth, session, and responsive layout
+// Purpose: Fixed Sidebar + Topbar; handles responsive layout
 
 "use client";
 
-import { ReactNode, useEffect } from "react";
+import { ReactNode } from "react";
 import Sidebar from "@/app/components/Sidebar";
 import Topbar from "@/app/components/Topbar";
-import { useUserStore } from "@/app/store/useUserStore.ts";
 import { useSidebarStore } from "@/app/store/useSidebarStore.ts";
 
 interface DashboardLayoutProps {
@@ -14,30 +13,8 @@ interface DashboardLayoutProps {
 }
 
 export default function DashboardLayout({ children }: DashboardLayoutProps) {
-  const { user, fetchUser, loading } = useUserStore();
   const { isOpen } = useSidebarStore();
   const sidebarWidth = isOpen ? 256 : 64;
-
-  // Hydrate user session on mount
-  useEffect(() => {
-    if (!user) fetchUser();
-  }, [user, fetchUser]);
-
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center min-h-screen text-gray-500">
-        Loading session...
-      </div>
-    );
-  }
-
-  if (!user) {
-    return (
-      <div className="flex items-center justify-center min-h-screen text-red-500">
-        Not authenticated
-      </div>
-    );
-  }
 
   return (
     <div className="h-screen w-screen overflow-hidden flex bg-gradient-to-br from-ford-primary/20 to-ford-secondary/10 backdrop-blur-md">

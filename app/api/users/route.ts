@@ -1,126 +1,129 @@
-// import { NextRequest, NextResponse } from "next/server";
-// import { prisma } from "@/lib/db";
-// import { cookieUser } from "@/lib/cookieUser";
-// import { z } from "zod";
-// import bcrypt from "bcryptjs";
-// import { Role } from "@prisma/client";
-// import { inferRoleFromPosition, roleToDepartment } from "@/lib/api/constants/roleInference";
+// app/api/users/route.ts
+// Purpose: User creation and listing API with integrated Staff creation, school context, hashed passwords, Zod validation, and staff info included.
 
-// // Zod schema for staff creation
-// const staffCreateSchema = z.object({
-//   name: z.string().min(1),
-//   email: z.string().email(),
-//   password: z.string().min(6),
-//   position: z.string().optional(),
-//   department: z.string().optional(),
-//   salary: z.number().optional(),
-//   hireDate: z.string().optional(),
-//   subject: z.string().optional(),
-//   role: z.nativeEnum(Role).optional(),
-//   classId: z.string().optional(),
-// });
+import { NextResponse } from "next/server";
+import prisma from "@/lib/prisma";
+import { userCreateSchema, staffRoles } from "@/lib/validation/userSchemas";
+import { cookieUser } from "@/lib/cookieUser";
+import { z } from "zod";
+import bcrypt from "bcryptjs";
 
-// // -------------------- GET: List users/staff --------------------
-// export async function GET(req: Request) {
-//   const user = await cookieUser();
-//   if (!user) return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
+// ------------------- Zod schemas -------------------
+const userQuerySchema = z.object({
+  search: z.string().optional(),
+  role: z.string().optional(),
+  page: z.coerce.number().min(1).optional().default(1),
+  limit: z.coerce.number().min(1).max(100).optional().default(20),
+});
 
-//   const { searchParams } = new URL(req.url);
-//   const page = parseInt(searchParams.get("page") || "1");
-//   const perPage = parseInt(searchParams.get("perPage") || "10");
-//   const search = searchParams.get("search")?.trim() || "";
-//   const skip = (page - 1) * perPage;
+// ------------------- Design reasoning -------------------
+// - Creates User and Staff (if role matches staffRoles) atomically with $transaction.
+// - Passwords hashed for security.
+// - Includes staff info in GET response for seamless frontend use.
+// - School context ensures users only manage their own school data.
+// - Zod validates query params and request body.
+// - Supports pagination and search for large datasets.
 
-//   try {
-//     const where = {
-//       user: {
-//         schoolId: user.schoolId,
-//         ...(search
-//           ? {
-//               OR: [
-//                 { name: { contains: search, mode: "insensitive" } },
-//                 { email: { contains: search, mode: "insensitive" } },
-//               ],
-//             }
-//           : {}),
-//       },
-//     };
+// ------------------- Structure -------------------
+// Exports:
+// POST -> create user + optional staff
+// GET -> list users scoped to school, with staff info, search, and pagination
 
-//     const [staffList, total] = await Promise.all([
-//       prisma.staff.findMany({
-//         where,
-//         include: { user: true, department: true, class: true },
-//         skip,
-//         take: perPage,
-//         orderBy: { createdAt: "desc" },
-//       }),
-//       prisma.staff.count({ where }),
-//     ]);
+export async function POST(req: Request) {
+  try {
+    const currentUser = await cookieUser();
+    if (!currentUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-//     return NextResponse.json({ staffList, total, page, perPage });
-//   } catch (err: any) {
-//     console.error("Fetch staff failed:", err);
-//     return NextResponse.json({ message: "Failed to fetch staff" }, { status: 500 });
-//   }
-// }
+    const body = await req.json();
+    const parsed = userCreateSchema.parse(body);
 
-// // -------------------- POST: Create user + staff --------------------
-// export async function POST(req: NextRequest) {
-//   try {
-//     const user = await cookieUser();
-//     if (!user) return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
+    const existing = await prisma.user.findUnique({ where: { email: parsed.email } });
+    if (existing) return NextResponse.json({ error: "Email already in use" }, { status: 400 });
 
-//     const body = await req.json();
-//     const parsed = staffCreateSchema.parse(body);
+    const hashedPassword = await bcrypt.hash(parsed.password, 12);
 
-//     const roleToAssign = parsed.role || inferRoleFromPosition(parsed.position || "");
-//     const hashedPassword = bcrypt.hashSync(parsed.password, 10);
+    const userData = {
+      name: parsed.name,
+      email: parsed.email,
+      password: hashedPassword,
+      role: parsed.role,
+      busId: parsed.role === "TRANSPORT" ? parsed.busId : null,
+      schoolId: currentUser.school?.id,
+    };
 
-//     const newStaff = await prisma.$transaction(async (prismaTx) => {
-//       // 1️⃣ Create User
-//       const newUser = await prismaTx.user.create({
-//         data: {
-//           name: parsed.name,
-//           email: parsed.email,
-//           password: hashedPassword,
-//           role: roleToAssign,
-//           schoolId: user.schoolId,
-//         },
-//       });
+    const user = await prisma.$transaction(async (tx) => {
+      const createdUser = await tx.user.create({ data: userData });
 
-//       // 2️⃣ Ensure Department exists
-//       let departmentId: string | null = null;
-//       const deptName = parsed.department || roleToDepartment[roleToAssign];
-//       if (deptName) {
-//         const dept = await prismaTx.department.upsert({
-//           where: { name: deptName },
-//           update: {},
-//           create: { name: deptName },
-//         });
-//         departmentId = dept.id;
-//       }
+      if (staffRoles.includes(parsed.role)) {
+        await tx.staff.create({
+          data: {
+            userId: createdUser.id,
+            role: parsed.role,
+            schoolId: currentUser.school?.id,
+          },
+        });
+      }
 
-//       // 3️⃣ Create Staff
-//       return prismaTx.staff.create({
-//         data: {
-//           userId: newUser.id,
-//           position: parsed.position || null,
-//           departmentId,
-//           classId: parsed.classId || null,
-//           salary: parsed.salary || null,
-//           subject: parsed.subject || null,
-//           hireDate: parsed.hireDate ? new Date(parsed.hireDate) : null,
-//         },
-//         include: { user: true, department: true, class: true },
-//       });
-//     });
+      return createdUser;
+    });
 
-//     return NextResponse.json(newStaff, { status: 201 });
-//   } catch (error: any) {
-//     if (error instanceof z.ZodError) {
-//       return NextResponse.json({ errors: error.errors.map((e) => e.message) }, { status: 400 });
-//     }
-//     console.error("POST /api/users error:", error);
-//     return NextResponse.json({ error: "Unable to create staff" }, { status: 500 });
-//   }
-// }
+    // Include staff info in response
+    const userWithStaff = await prisma.user.findUnique({
+      where: { id: user.id },
+      include: { staff: true },
+    });
+
+    return NextResponse.json(userWithStaff, { status: 201 });
+  } catch (err: any) {
+    return NextResponse.json({ error: err.message || "Server error" }, { status: 400 });
+  }
+}
+
+export async function GET(req: Request) {
+  try {
+    const currentUser = await cookieUser();
+    if (!currentUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+    const url = new URL(req.url);
+    const queryParsed = userQuerySchema.parse({
+      search: url.searchParams.get("search") || undefined,
+      role: url.searchParams.get("role") || undefined,
+      page: url.searchParams.get("page") || undefined,
+      limit: url.searchParams.get("limit") || undefined,
+    });
+
+    const skip = (queryParsed.page - 1) * queryParsed.limit;
+
+    const where: any = { schoolId: currentUser.school?.id };
+    if (queryParsed.role) where.role = queryParsed.role;
+    if (queryParsed.search) {
+      where.OR = [
+        { name: { contains: queryParsed.search, mode: "insensitive" } },
+        { email: { contains: queryParsed.search, mode: "insensitive" } },
+      ];
+    }
+
+    const [users, total] = await prisma.$transaction([
+      prisma.user.findMany({
+        where,
+        skip,
+        take: queryParsed.limit,
+        orderBy: { createdAt: "desc" },
+        include: { staff: true },
+      }),
+      prisma.user.count({ where }),
+    ]);
+
+    return NextResponse.json({
+      data: users,
+      pagination: {
+        total,
+        page: queryParsed.page,
+        limit: queryParsed.limit,
+        pages: Math.ceil(total / queryParsed.limit),
+      },
+    });
+  } catch (err: any) {
+    return NextResponse.json({ error: err.message || "Server error" }, { status: 400 });
+  }
+}

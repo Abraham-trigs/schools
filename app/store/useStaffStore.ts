@@ -1,12 +1,10 @@
 // app/store/useStaffStore.ts
-// Purpose: Zustand store for managing Staff data, including CRUD operations, pagination, and redirect support after deletion.
-
 "use client";
 
 import { create } from "zustand";
 import { debounce } from "lodash";
-import { apiClient } from "@/lib/apiClient";
-import { useClassesStore } from "./useClassesStore";
+import { apiClient } from "@/lib/apiClient.ts";
+import { Role } from '../components/Sidebar';
 
 // --- Types ---
 export interface Staff {
@@ -23,14 +21,14 @@ export interface Staff {
   updatedAt: string;
 }
 
-interface UserPayload {
+export interface User {
+  id: string;
   name: string;
   email: string;
-  password: string;
-  role?: string;
 }
 
 interface StaffPayload {
+  userId: string;
   position?: string;
   department?: string;
   classId?: string | null;
@@ -58,10 +56,12 @@ interface StaffState {
   fetchStaffDebounced: (page?: number, search?: string) => void;
   fetchStaffById: (id: string) => Promise<Staff | null>;
 
-  createStaff: (user: UserPayload, staff: StaffPayload) => Promise<Staff | null>;
+  // Step-separated creation
+  createUser: (data: { name: string; email: string; password: string }) => Promise<User | null>;
+  createStaffRecord: (staffPayload: StaffPayload) => Promise<Staff | null>;
+
   updateStaff: (id: string, data: Partial<Staff>) => void;
   deleteStaff: (id: string, onDeleted?: () => void) => Promise<void>;
-
   totalPages: () => number;
 }
 
@@ -91,7 +91,6 @@ export const useStaffStore = create<StaffState>((set, get) => {
 
     setSelectedStaff: (staff) => set({ selectedStaff: staff }),
 
-    // --- Fetch paginated staff list ---
     fetchStaff: async (page = get().page, search = get().search) => {
       const cached = get().cache[page];
       if (cached && !search) {
@@ -118,7 +117,6 @@ export const useStaffStore = create<StaffState>((set, get) => {
 
     fetchStaffDebounced,
 
-    // --- Fetch individual staff ---
     fetchStaffById: async (id: string) => {
       set({ loading: true, error: null });
       try {
@@ -142,13 +140,31 @@ export const useStaffStore = create<StaffState>((set, get) => {
       }
     },
 
-    // --- Create staff ---
-    createStaff: async (userPayload, staffPayload) => {
+    // -------------------- Step 1: Create User --------------------
+    createUser: async ({ name, email, password, Role  }) => {
+      set({ loading: true, error: null });
+      try {
+        const userRes = await apiClient<User>("/api/users", {
+          method: "POST",
+          body: JSON.stringify({ name, email, password , Role }),
+        });
+        if (!userRes?.id) throw new Error("Failed to create user");
+        return userRes;
+      } catch (err: any) {
+        set({ error: err?.error?.message || err?.message || "Failed to create user" });
+        return null;
+      } finally {
+        set({ loading: false });
+      }
+    },
+
+    // -------------------- Step 2: Create Staff Record --------------------
+    createStaffRecord: async (staffPayload) => {
       set({ loading: true, error: null });
       try {
         const newStaff = await apiClient<Staff>("/api/staff", {
           method: "POST",
-          body: JSON.stringify({ ...userPayload, ...staffPayload }),
+          body: JSON.stringify(staffPayload),
         });
         set((state) => ({
           staffList: [newStaff, ...state.staffList],
@@ -156,57 +172,43 @@ export const useStaffStore = create<StaffState>((set, get) => {
         }));
         return newStaff;
       } catch (err: any) {
-        set({ error: err?.error?.message || err?.message || "Failed to create staff" });
+        set({ error: err?.error?.message || err?.message || "Failed to create staff record" });
         return null;
       } finally {
         set({ loading: false });
       }
     },
 
-    // --- Update staff in store (optimistic) ---
-    updateStaff: (id, data) => {
-      set((state) => {
-        const updatedList = state.staffList.map((s) =>
-          s.id === id ? { ...s, ...data } : s
-        );
-        const updatedSelected =
-          state.selectedStaff?.id === id
-            ? { ...state.selectedStaff, ...data }
-            : state.selectedStaff;
-        return {
-          staffList: updatedList,
-          selectedStaff: updatedSelected || null,
-          cache: Object.fromEntries(
-            Object.entries(state.cache).map(([k, list]) => [
-              k,
-              list.map((s) => (s.id === id ? { ...s, ...data } : s)),
-            ])
-          ),
-        };
-      });
+    updateStaff: async (id: string, data: Partial<Staff>) => {
+      set((state) => ({
+        staffList: state.staffList.map((s) => (s.id === id ? { ...s, ...data } : s)),
+        selectedStaff:
+          state.selectedStaff?.id === id ? { ...state.selectedStaff, ...data } : state.selectedStaff,
+      }));
+      try {
+        await apiClient(`/api/staff/${id}`, { method: "PUT", body: JSON.stringify(data) });
+      } catch (err: any) {
+        set({ error: err?.message || "Failed to update staff" });
+        get().fetchStaff();
+      }
     },
 
-    // --- Delete staff with callback ---
     deleteStaff: async (id: string, onDeleted?: () => void) => {
       set({ loading: true, error: null });
       try {
         const res = await apiClient<{ success: boolean; error?: any }>(`/api/staff/${id}`, {
           method: "DELETE",
         });
-
         if (res.success) {
           set((state) => ({
             staffList: state.staffList.filter((s) => s.id !== id),
             selectedStaff: state.selectedStaff?.id === id ? null : state.selectedStaff,
             total: Math.max(0, state.total - 1),
             cache: Object.fromEntries(
-              Object.entries(state.cache).map(([k, list]) => [
-                k,
-                list.filter((s) => s.id !== id),
-              ])
+              Object.entries(state.cache).map(([k, list]) => [k, list.filter((s) => s.id !== id)])
             ),
           }));
-          if (onDeleted) onDeleted(); // callback safely after state update
+          if (onDeleted) onDeleted();
         } else {
           set({ error: res.error?.message || "Failed to delete staff" });
         }

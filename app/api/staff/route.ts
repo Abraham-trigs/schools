@@ -2,6 +2,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { cookieUser } from "@/lib/cookieUser";
+import { z } from "zod";
+
+// ------------------------- Zod schema for POST -------------------------
+const staffCreateSchema = z.object({
+  userId: z.string().uuid(),
+  position: z.string(),
+  department: z.string().optional(),
+  classId: z.string().optional(),
+  salary: z.number().optional(),
+  hireDate: z.string().optional(),
+});
 
 // ------------------------- GET: List Staff -------------------------
 export async function GET(req: NextRequest) {
@@ -32,5 +43,39 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ staffList, total, page });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });
+  }
+}
+
+// ------------------------- POST: Create Staff -------------------------
+export async function POST(req: NextRequest) {
+  try {
+    const authUser = await cookieUser();
+    if (!authUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+    const body = await req.json();
+    const parsed = staffCreateSchema.parse(body);
+
+    // Ensure the user exists and belongs to the same school
+    const user = await prisma.user.findUnique({ where: { id: parsed.userId } });
+    if (!user || user.schoolId !== authUser.schoolId)
+      return NextResponse.json({ error: "Invalid user" }, { status: 400 });
+
+    // Create staff record
+    const staff = await prisma.staff.create({
+      data: {
+        userId: parsed.userId,
+        role: parsed.position, // or map position to role if needed
+        department: parsed.department,
+        classId: parsed.classId,
+        salary: parsed.salary,
+        hireDate: parsed.hireDate ? new Date(parsed.hireDate) : undefined,
+        schoolId: authUser.schoolId,
+      },
+      include: { user: true, class: true },
+    });
+
+    return NextResponse.json(staff, { status: 201 });
+  } catch (err: any) {
+    return NextResponse.json({ error: err.message || "Server error" }, { status: 400 });
   }
 }

@@ -1,9 +1,9 @@
 // app/api/users/route.ts
-// Purpose: User creation and listing API with integrated Staff creation, school context, hashed passwords, Zod validation, and staff info included.
+// Purpose: User creation and listing API, school-scoped, hashed passwords, Zod validation.
 
 import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
-import { userCreateSchema, staffRoles } from "@/lib/validation/userSchemas";
+import { userCreateSchema } from "@/lib/validation/userSchemas";
 import { cookieUser } from "@/lib/cookieUser";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
@@ -17,17 +17,16 @@ const userQuerySchema = z.object({
 });
 
 // ------------------- Design reasoning -------------------
-// - Creates User and Staff (if role matches staffRoles) atomically with $transaction.
+// - Creates only User, no Staff creation.
 // - Passwords hashed for security.
-// - Includes staff info in GET response for seamless frontend use.
 // - School context ensures users only manage their own school data.
 // - Zod validates query params and request body.
 // - Supports pagination and search for large datasets.
 
 // ------------------- Structure -------------------
 // Exports:
-// POST -> create user + optional staff
-// GET -> list users scoped to school, with staff info, search, and pagination
+// POST -> create user only
+// GET -> list users scoped to school, with optional staff info included for frontend convenience
 
 export async function POST(req: Request) {
   try {
@@ -46,34 +45,14 @@ export async function POST(req: Request) {
       name: parsed.name,
       email: parsed.email,
       password: hashedPassword,
-      role: parsed.role,
+      role: parsed.role, // optional, can be undefined
       busId: parsed.role === "TRANSPORT" ? parsed.busId : null,
       schoolId: currentUser.school?.id,
     };
 
-    const user = await prisma.$transaction(async (tx) => {
-      const createdUser = await tx.user.create({ data: userData });
+    const createdUser = await prisma.user.create({ data: userData });
 
-      if (staffRoles.includes(parsed.role)) {
-        await tx.staff.create({
-          data: {
-            userId: createdUser.id,
-            role: parsed.role,
-            schoolId: currentUser.school?.id,
-          },
-        });
-      }
-
-      return createdUser;
-    });
-
-    // Include staff info in response
-    const userWithStaff = await prisma.user.findUnique({
-      where: { id: user.id },
-      include: { staff: true },
-    });
-
-    return NextResponse.json(userWithStaff, { status: 201 });
+    return NextResponse.json(createdUser, { status: 201 });
   } catch (err: any) {
     return NextResponse.json({ error: err.message || "Server error" }, { status: 400 });
   }
@@ -109,7 +88,7 @@ export async function GET(req: Request) {
         skip,
         take: queryParsed.limit,
         orderBy: { createdAt: "desc" },
-        include: { staff: true },
+        include: { staff: true }, // optional, for frontend display only
       }),
       prisma.user.count({ where }),
     ]);

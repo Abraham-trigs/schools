@@ -206,6 +206,7 @@ model Student {
 model Class {
   id       String    @id @default(cuid())
   name     String
+  grade    String
   schoolId String
   school   School    @relation(fields: [schoolId], references: [id])
   students Student[]

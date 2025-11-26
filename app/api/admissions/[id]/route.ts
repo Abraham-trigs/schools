@@ -1,4 +1,3 @@
-// app/api/admissions/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { z } from "zod";
@@ -25,7 +24,6 @@ const PreviousSchoolSchema = z.object({
 });
 
 const AdmissionSchema = z.object({
-  studentId: z.string(),
   classId: z.string(),
   surname: z.string(),
   firstName: z.string(),
@@ -63,56 +61,52 @@ const AdmissionSchema = z.object({
   remarks: z.string().optional(),
   previousSchools: z.array(PreviousSchoolSchema).optional(),
   familyMembers: z.array(FamilyMemberSchema).optional(),
-  admissionPin: z.string(),
 });
 
-// -------------------- GET minimal admission --------------------
-export async function GET(req: NextRequest) {
+// -------------------- GET by studentId --------------------
+export async function GET(req: NextRequest, { params }: { params: { studentId: string } }) {
   try {
     const schoolAccount = await SchoolAccount.init();
     if (!schoolAccount) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-    const { searchParams } = new URL(req.url);
-    const admissionId = searchParams.get("admissionId");
-    if (!admissionId) return NextResponse.json({ error: "admissionId is required" }, { status: 400 });
-
-    const admission = await prisma.application.findFirst({
-      where: { id: admissionId, schoolId: schoolAccount.schoolId },
-      include: { previousSchools: true, familyMembers: true },
+    const { studentId } = params;
+    const student = await prisma.student.findUnique({
+      where: { id: studentId },
+      include: { application: { include: { previousSchools: true, familyMembers: true } } },
     });
 
-    if (!admission) return NextResponse.json({ error: "Admission not found" }, { status: 404 });
+    if (!student) return NextResponse.json({ error: "Student not found" }, { status: 404 });
 
-    return NextResponse.json({ admission });
+    return NextResponse.json({ student });
   } catch (err: any) {
     return NextResponse.json({ error: err.message || "Server error" }, { status: 500 });
   }
 }
 
-// -------------------- POST create admission --------------------
-export async function POST(req: NextRequest) {
+// -------------------- PUT update admission --------------------
+export async function PUT(req: NextRequest, { params }: { params: { studentId: string } }) {
   try {
     const schoolAccount = await SchoolAccount.init();
     if (!schoolAccount) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
+    const { studentId } = params;
     const body = await req.json();
     const data = AdmissionSchema.parse(body);
 
-    const selectedClass = await prisma.class.findFirst({
-      where: { id: data.classId, schoolId: schoolAccount.schoolId },
+    const student = await prisma.student.findUnique({
+      where: { id: studentId },
+      include: { application: true },
     });
-    if (!selectedClass) return NextResponse.json({ error: "Invalid class selected" }, { status: 400 });
+    if (!student || !student.application) return NextResponse.json({ error: "Admission not found" }, { status: 404 });
 
-    const payment = await prisma.admissionPayment.findFirst({
-      where: { pinCode: data.admissionPin, used: false, studentId: data.studentId, schoolId: schoolAccount.schoolId },
-    });
-    if (!payment) return NextResponse.json({ error: "Invalid or used admission PIN" }, { status: 400 });
+    const updatedAdmission = await prisma.$transaction(async (tx) => {
+      await tx.previousSchools.deleteMany({ where: { applicationId: student.application.id } });
+      await tx.familyMembers.deleteMany({ where: { applicationId: student.application.id } });
 
-    const admission = await prisma.$transaction(async (tx) => {
-      const app = await tx.application.create({
+      return tx.application.update({
+        where: { id: student.application.id },
         data: {
-          studentId: data.studentId,
-          schoolId: schoolAccount.schoolId,
+          classId: data.classId,
           surname: data.surname,
           firstName: data.firstName,
           otherNames: data.otherNames,
@@ -120,7 +114,6 @@ export async function POST(req: NextRequest) {
           nationality: data.nationality,
           sex: data.sex,
           languages: data.languages,
-          grade: selectedClass.name,
           mothersTongue: data.mothersTongue,
           religion: data.religion,
           denomination: data.denomination,
@@ -148,22 +141,13 @@ export async function POST(req: NextRequest) {
           receivedBy: data.receivedBy,
           receivedDate: data.receivedDate ? new Date(data.receivedDate) : undefined,
           remarks: data.remarks,
-          admissionPaymentId: payment.id,
           previousSchools: { create: data.previousSchools || [] },
           familyMembers: { create: data.familyMembers || [] },
         },
       });
-
-      await tx.student.create({
-        data: { id: data.studentId, userId: data.studentId, classId: selectedClass.id, enrolledAt: new Date(), application: { connect: { id: app.id } } },
-      });
-
-      await tx.admissionPayment.update({ where: { id: payment.id }, data: { used: true } });
-
-      return app;
     });
 
-    return NextResponse.json({ success: true, admission }, { status: 201 });
+    return NextResponse.json({ success: true, updatedAdmission });
   } catch (err: any) {
     if (err instanceof z.ZodError) return NextResponse.json({ error: err.errors }, { status: 400 });
     return NextResponse.json({ error: err.message || "Server error" }, { status: 500 });

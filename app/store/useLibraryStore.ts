@@ -40,7 +40,7 @@ interface LibraryState {
   fetchBooksDebounced: (page?: number, search?: string) => void;
   fetchBookById: (id: string) => Promise<Book | null>;
   createBook: (payload: Partial<Book>) => Promise<Book | null>;
-  updateBook: (id: string, payload: Partial<Book>) => void;
+  updateBook: (id: string, payload: Partial<Book>) => Promise<Book | null>;
   deleteBook: (id: string, onDeleted?: () => void) => Promise<void>;
   totalPages: () => number;
 }
@@ -62,9 +62,8 @@ export const useLibraryStore = create<LibraryState>((set, get) => {
     error: null,
     cache: {},
 
-    // --- New setter for selectedBook
+    // --- Setters
     setSelectedBook: (book) => set({ selectedBook: book }),
-
     setPage: (page) => set({ page }),
     setPerPage: (perPage) => set({ perPage }),
     setSearch: (search) => { set({ search, page: 1 }); fetchBooksDebounced(1, search); },
@@ -73,6 +72,7 @@ export const useLibraryStore = create<LibraryState>((set, get) => {
     fetchBooks: async (page = get().page, search = get().search) => {
       const cached = get().cache[page];
       if (cached && !search) { set({ books: cached, page }); return; }
+
       set({ loading: true, error: null });
       try {
         const data = await apiClient<{ books: Book[]; total: number; page: number }>(
@@ -86,7 +86,9 @@ export const useLibraryStore = create<LibraryState>((set, get) => {
         }));
       } catch (err: any) {
         set({ error: err?.message || "Failed to fetch books" });
-      } finally { set({ loading: false }); }
+      } finally {
+        set({ loading: false });
+      }
     },
 
     fetchBooksDebounced,
@@ -97,6 +99,7 @@ export const useLibraryStore = create<LibraryState>((set, get) => {
       try {
         const existing = get().books.find((b) => b.id === id);
         if (existing) { set({ selectedBook: existing }); return existing; }
+
         const fetched = await apiClient<Book>(`/api/library/${id}`);
         set({
           selectedBook: fetched,
@@ -113,7 +116,10 @@ export const useLibraryStore = create<LibraryState>((set, get) => {
     createBook: async (payload) => {
       set({ loading: true, error: null });
       try {
-        const book = await apiClient<Book>(`/api/library/${id}`, { method: "PUT", body: JSON.stringify(payload) });
+        const book = await apiClient<Book>("/api/library", {
+          method: "POST",
+          body: JSON.stringify(payload),
+        });
         set((state) => ({ books: [book, ...state.books], total: state.total + 1 }));
         return book;
       } catch (err: any) {
@@ -123,21 +129,32 @@ export const useLibraryStore = create<LibraryState>((set, get) => {
     },
 
     // --- Update book
-    updateBook: (id, payload) => {
-      set((state) => {
-        const updatedList = state.books.map((b) => (b.id === id ? { ...b, ...payload } : b));
-        const updatedSelected = state.selectedBook?.id === id ? { ...state.selectedBook, ...payload } : state.selectedBook;
-        return {
-          books: updatedList,
-          selectedBook: updatedSelected || null,
-          cache: Object.fromEntries(
-            Object.entries(state.cache).map(([k, list]) => [
-              k,
-              list.map((b) => (b.id === id ? { ...b, ...payload } : b))
-            ])
-          ),
-        };
-      });
+    updateBook: async (id, payload) => {
+      set({ loading: true, error: null });
+      try {
+        const updated = await apiClient<Book>(`/api/library/${id}`, {
+          method: "PUT",
+          body: JSON.stringify(payload),
+        });
+        set((state) => {
+          const updatedList = state.books.map((b) => (b.id === id ? updated : b));
+          const updatedSelected = state.selectedBook?.id === id ? updated : state.selectedBook;
+          return {
+            books: updatedList,
+            selectedBook: updatedSelected || null,
+            cache: Object.fromEntries(
+              Object.entries(state.cache).map(([k, list]) => [
+                k,
+                list.map((b) => (b.id === id ? updated : b))
+              ])
+            ),
+          };
+        });
+        return updated;
+      } catch (err: any) {
+        set({ error: err?.message || "Failed to update book" });
+        return null;
+      } finally { set({ loading: false }); }
     },
 
     // --- Delete book
@@ -154,10 +171,12 @@ export const useLibraryStore = create<LibraryState>((set, get) => {
           }));
           if (onDeleted) onDeleted();
         } else set({ error: res.error?.message || "Failed to delete book" });
-      } catch (err: any) { set({ error: err?.message || "Failed to delete book" }); }
-      finally { set({ loading: false }); }
+      } catch (err: any) {
+        set({ error: err?.message || "Failed to delete book" });
+      } finally { set({ loading: false }); }
     },
 
+    // --- Total pages calculation
     totalPages: () => Math.ceil(get().total / get().perPage),
   };
 });

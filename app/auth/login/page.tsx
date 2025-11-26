@@ -1,43 +1,52 @@
 "use client";
 
 import { useState } from "react";
-import axios from "axios";
+import { useRouter } from "next/navigation";
 import clsx from "clsx";
 import Image from "next/image";
+import { useAuthStore } from "@/app/store/useAuthStore.ts";
 
 export default function LoginPage() {
+  const router = useRouter();
+  const login = useAuthStore((state) => state.login);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
+  const [error, setError] = useState<string>("");
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError("");
 
-    try {
-      const res = await axios.post("/api/auth/login", { email, password });
-      if (res.status === 200) window.location.href = "/dashboard";
-    } catch (err: any) {
-      setError(err?.response?.data?.message || "Login failed");
-    } finally {
-      setLoading(false);
+    const success = await login(email, password);
+
+    if (success) {
+      // ---- LOG SCHOOL ID ----
+      const user = useAuthStore.getState().user;
+      console.log("Logged-in user school ID:", user?.school?.id);
+
+      router.replace("/dashboard"); // redirect to dashboard
+    } else {
+      const authError = useAuthStore.getState().error;
+      setError(authError?.message || "Login failed");
     }
+
+    setLoading(false);
   };
 
   return (
-    <div className="relative flex items-center justify-center min-h-screen ">
+    <div className="relative flex items-center justify-center min-h-screen">
       {/* Background Image */}
       <Image
-        src="/main-4.webp" // Your background image
+        src="/main-4.webp"
         alt="Ford School"
         fill
         className="object-cover object-top -z-10 blur-sm"
         priority
       />
-      {/* Optional overlay for better contrast */}
-      <div className="absolute inset-0  -z-0"></div>
+      {/* Overlay for contrast */}
+      <div className="absolute inset-0 bg-black/30 -z-0"></div>
 
       {/* Login Form */}
       <div className="relative w-full max-w-md p-8 bg-ford-card rounded-lg shadow-2xs z-10">
@@ -84,8 +93,3 @@ export default function LoginPage() {
 
         <p className="mt-6 text-center text-sm text-white/70">
           &copy; {new Date().getFullYear()} Ford School
-        </p>
-      </div>
-    </div>
-  );
-}

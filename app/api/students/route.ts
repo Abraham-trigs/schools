@@ -1,106 +1,61 @@
-import { NextResponse } from "next/server";
-import { prisma } from "@/lib/db";
-import { cookieUser } from "@/lib/cookieUser";
-import { z } from "zod";
-import { Role } from "@prisma/client";
-import bcrypt from "bcryptjs";
+// app/api/students/route.ts
+import { NextRequest, NextResponse } from "next/server";
+import { prisma } from "@/lib/prisma";
+import { SchoolAccount } from "@/lib/schoolAccount";
 
-const studentSchema = z.object({
-  name: z.string().min(1),
-  email: z.string().email(),
-  password: z.string().min(6),
-  classId: z.string(), // required now
-  enrolledAt: z.string().optional(),
-});
-
-// GET all students for logged-in user's school
-export async function GET(req: Request) {
-  const user = await cookieUser(req);
-  if (!user) return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
-
-  const { searchParams } = new URL(req.url);
-  const page = Number(searchParams.get("page") || "1");
-  const perPage = Number(searchParams.get("perPage") || "10");
-  const search = searchParams.get("search") || "";
-  const where = {
-    user: {
-      schoolId: user.schoolId,
-      role: { in: [Role.STUDENT, Role.CLASS_REP] },
-      OR: search
-        ? [
-            { name: { contains: search, mode: "insensitive" } },
-            { email: { contains: search, mode: "insensitive" } },
-          ]
-        : undefined,
-    },
-  };
-
-  const total = await prisma.student.count({ where });
-  const students = await prisma.student.findMany({
-    where,
-    include: {
-      user: { select: { id: true, name: true, email: true } },
-      class: { select: { id: true, name: true } },
-      parents: true,
-      exams: true,
-      transactions: true,
-      attendances: true,
-    },
-    skip: (page - 1) * perPage,
-    take: perPage,
-    orderBy: { user: { name: "asc" } },
-  });
-
-  return NextResponse.json({ students, total, page, perPage });
-}
-
-// POST create student
-export async function POST(req: Request) {
-  const user = await cookieUser(req);
-  if (!user) return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
-
+export async function GET(req: NextRequest) {
   try {
-    const body = await req.json();
-    const data = studentSchema.parse(body);
+    const schoolAccount = await SchoolAccount.init();
+    if (!schoolAccount) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-    const hashedPassword = await bcrypt.hash(data.password, 10);
+    const { searchParams } = new URL(req.url);
+    const page = parseInt(searchParams.get("page") || "1", 10);
+    const perPage = parseInt(searchParams.get("perPage") || "20", 10);
+    const search = searchParams.get("search") || "";
 
-const newStudent = await prisma.user.create({
-  data: {
-    name: data.name,
-    email: data.email,
-    password: hashedPassword,
-    role: Role.STUDENT,
-    schoolId: user.schoolId,
-    student: {
-      create: {
-        classId: data.classId,
-        enrolledAt: data.enrolledAt ? new Date(data.enrolledAt) : new Date(),
-      },
-    },
-  },
-  include: {
-    student: {
-      include: {
-        class: true,
-        parents: true,
-        exams: true,
-        transactions: true,
-        attendances: true,
-      },
-    },
-  },
-});
+    const skip = (page - 1) * perPage;
 
-    // Return the "student object" for frontend consumption
+    const where: any = { schoolId: schoolAccount.schoolId };
+    if (search) {
+      where.OR = [
+        { user: { name: { contains: search, mode: "insensitive" } } },
+        { application: { firstName: { contains: search, mode: "insensitive" } } },
+        { application: { surname: { contains: search, mode: "insensitive" } } },
+        { application: { wardEmail: { contains: search, mode: "insensitive" } } },
+      ];
+    }
+
+    const [students, total] = await prisma.$transaction([
+      prisma.student.findMany({
+        where,
+        include: {
+          user: true,
+          class: true,
+          application: {
+            include: {
+              previousSchools: true,
+              familyMembers: true,
+              admissionPayment: true,
+            },
+          },
+        },
+        skip,
+        take: perPage,
+        orderBy: { createdAt: "desc" },
+      }),
+      prisma.student.count({ where }),
+    ]);
+
     return NextResponse.json({
-  Student: {
-    ...newStudent.student,
-    user: { id: newStudent.id, name: newStudent.name, email: newStudent.email },
-  },
-}, { status: 201 });
-
+      students,
+      pagination: {
+        total,
+        page,
+        perPage,
+        totalPages: Math.ceil(total / perPage),
+      },
+    });
   } catch (err: any) {
-    return NextResponse.json({ message: err.message || "Failed to add student" }, { status: 400 });
+    return NextResponse.json({ error: err.message || "Server error" }, { status: 500 });
   }
 }

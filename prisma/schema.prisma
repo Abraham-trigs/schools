@@ -1,10 +1,10 @@
-generator client {
-  provider = "prisma-client-js"
-}
-
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
 }
 
 enum Role {
@@ -87,6 +87,7 @@ model Student {
 
   subjects          Subject[]           @relation("StudentSubjects")
   application       Application?        @relation("StudentApplication")
+  enrolledAt        DateTime            @default(now())
   Class             Class?              @relation(fields: [classId], references: [id])
   classId           String?
   Exam              Exam[]
@@ -241,6 +242,7 @@ model Subject {
 
 model Exam {
   id        String   @id @default(cuid())
+  title     String
   studentId String?
   student   Student? @relation(fields: [studentId], references: [id], onDelete: Cascade)
   classId   String?

@@ -5,13 +5,12 @@ import { create } from "zustand";
 import { apiClient } from "@/lib/apiClient";
 import { z } from "zod";
 
-// ------------------- Zod schemas -------------------
+// ------------------- Zod Schemas -------------------
 const userSchema = z.object({
   id: z.string(),
   name: z.string(),
   email: z.string().email(),
   role: z.string(),
-  busId: z.string().nullable().optional(),
   schoolId: z.string(),
   createdAt: z.string(),
   updatedAt: z.string(),
@@ -33,7 +32,6 @@ export interface User {
   name: string;
   email: string;
   role: string;
-  busId?: string | null;
   schoolId: string;
   createdAt: string;
   updatedAt: string;
@@ -86,13 +84,14 @@ export const useUserStore = create<UserStore>((set, get) => ({
       const res = await apiClient({
         url: `/api/users?search=${encodeURIComponent(search)}&page=${page}&limit=${limit}`,
         method: "GET",
-        auth: true,
+        useSchoolAccount: true, // ensures JWT + school scoping
       });
 
       const parsed = userListResponseSchema.parse(res);
       set({ users: parsed.data, pagination: parsed.pagination });
     } catch (err: any) {
-      console.error("fetchUsers error:", err.message);
+      console.error("fetchUsers error:", err?.message || err);
+      // Reset users & pagination on error
       set({ users: [], pagination: { total: 0, page: 1, limit, pages: 1 } });
     }
   },
@@ -104,14 +103,14 @@ export const useUserStore = create<UserStore>((set, get) => ({
         url: "/api/users",
         method: "POST",
         body: payload,
-        auth: true,
+        useSchoolAccount: true, // SchoolAccount handles scoping
       });
 
       const parsed = userSchema.parse(res);
       set((state) => ({ users: [parsed, ...state.users] }));
       return parsed;
     } catch (err: any) {
-      console.error("createUser error:", err.message);
+      console.error("createUser error:", err?.message || err);
       throw err;
     }
   },
@@ -123,6 +122,7 @@ export const useUserStore = create<UserStore>((set, get) => ({
         url: `/api/users/${id}`,
         method: "PUT",
         body: payload,
+        useSchoolAccount: true, // ensures only scoped updates
         showSuccess: true,
         successMessage: "User updated successfully",
       });
@@ -133,7 +133,7 @@ export const useUserStore = create<UserStore>((set, get) => ({
       }));
       return parsed;
     } catch (err: any) {
-      console.error("updateUser error:", err.message);
+      console.error("updateUser error:", err?.message || err);
       throw err;
     }
   },
@@ -144,12 +144,13 @@ export const useUserStore = create<UserStore>((set, get) => ({
       await apiClient<{ message: string }>({
         url: `/api/users/${id}`,
         method: "DELETE",
+        useSchoolAccount: true,
         showSuccess: true,
         successMessage: "User deleted successfully",
       });
       set((state) => ({ users: state.users.filter((u) => u.id !== id) }));
     } catch (err: any) {
-      console.error("deleteUser error:", err.message);
+      console.error("deleteUser error:", err?.message || err);
       throw err;
     }
   },

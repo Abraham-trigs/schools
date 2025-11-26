@@ -1,10 +1,8 @@
 // app/api/library/[id]/route.ts
-// Handles update/delete of Book or LibraryStaff with auth, validation, and department constraints.
-
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { z } from "zod";
-import { cookieUser } from "@/lib/cookieUser";
+import { SchoolAccount } from "@/lib/schoolAccount";
 
 const bookUpdateSchema = z.object({
   title: z.string().optional(),
@@ -15,8 +13,8 @@ const bookUpdateSchema = z.object({
 });
 
 export async function PUT(req: Request, { params }: { params: { id: string } }) {
-  const user = await cookieUser(req);
-  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const schoolAccount = await SchoolAccount.init();
+  if (!schoolAccount) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   try {
     const body = await req.json();
@@ -24,8 +22,7 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
 
     const book = await prisma.book.findUnique({ where: { id: params.id } });
     if (!book) return NextResponse.json({ error: "Book not found" }, { status: 404 });
-
-    if (book.schoolId !== user.schoolId) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    if (book.schoolId !== schoolAccount.schoolId) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
     const updated = await prisma.book.update({
       where: { id: params.id },
@@ -41,13 +38,13 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
 }
 
 export async function DELETE(req: Request, { params }: { params: { id: string } }) {
-  const user = await cookieUser(req);
-  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const schoolAccount = await SchoolAccount.init();
+  if (!schoolAccount) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   try {
     const book = await prisma.book.findUnique({ where: { id: params.id } });
     if (!book) return NextResponse.json({ error: "Book not found" }, { status: 404 });
-    if (book.schoolId !== user.schoolId) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    if (book.schoolId !== schoolAccount.schoolId) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
     await prisma.book.delete({ where: { id: params.id } });
     return NextResponse.json({ success: true });

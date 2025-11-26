@@ -4,10 +4,8 @@ import React, { useState, useEffect } from "react";
 import { FamilyMember, PreviousSchool } from "@/app/stores/admissionStore";
 
 // =====================
-// Design reasoning
+// Generic modal type
 // =====================
-// Provides a clean modal UX for adding or editing nested items (family members, previous schools). Inline forms allow users to quickly enter details without leaving the main multi-step admission form. Ford color variables ensure brand consistency.
-
 interface ModalProps<T> {
   visible: boolean;
   onClose: () => void;
@@ -16,6 +14,9 @@ interface ModalProps<T> {
   title: string;
 }
 
+// =====================
+// Family Member Modal
+// =====================
 export function FamilyMemberModal({
   visible,
   onClose,
@@ -32,7 +33,7 @@ export function FamilyMemberModal({
     }
   );
 
-  // Sync initialData when modal reopens
+  // Sync initialData whenever modal reopens for edit
   useEffect(() => {
     if (initialData) setForm(initialData);
   }, [initialData]);
@@ -40,7 +41,7 @@ export function FamilyMemberModal({
   if (!visible) return null;
 
   const handleChange = (field: keyof FamilyMember, value: string | boolean) =>
-    setForm({ ...form, [field]: value });
+    setForm((prev) => ({ ...prev, [field]: value }));
 
   const handleSave = () => {
     onSave(form);
@@ -94,6 +95,9 @@ export function FamilyMemberModal({
   );
 }
 
+// =====================
+// Previous School Modal
+// =====================
 export function PreviousSchoolModal({
   visible,
   onClose,
@@ -112,7 +116,7 @@ export function PreviousSchoolModal({
   if (!visible) return null;
 
   const handleChange = (field: keyof PreviousSchool, value: string) =>
-    setForm({ ...form, [field]: value });
+    setForm((prev) => ({ ...prev, [field]: value }));
 
   const handleSave = () => {
     onSave(form);
@@ -167,16 +171,3 @@ export function PreviousSchoolModal({
     </div>
   );
 }
-
-// =====================
-// Implementation guidance
-// =====================
-// - Import and use FamilyMemberModal & PreviousSchoolModal in multi-step admission page.
-// - Pass onSave callbacks to update Zustand store.
-// - initialData allows edit mode for inline updates of nested items.
-
-// =====================
-// Scalability insight
-// =====================
-// - Generic modal pattern can be reused for future nested objects (e.g., guardian, health record).
-// - Supports optimistic updates with store and multi-step flow.

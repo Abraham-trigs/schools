@@ -1,12 +1,12 @@
 // lib/cookieUser.ts
 // Purpose: Safely retrieve authenticated user from HTTP-only JWT cookie using Prisma Role enum,
-//          including optional student/staff application data, fully scoped to the user's school,
-//          with caching for efficiency.
+//          preload full school object and optional student/staff applications,
+//          fully scoped to the user's school, with caching for efficiency.
 
 import { cookies } from "next/headers";
-import { prisma, Role } from "@/lib/db";
-import { verifyJwt } from "@/lib/jwt";
-import { COOKIE_NAME } from "@/lib/cookies";
+import { prisma, Role } from "@/lib/db.ts";
+import { verifyJwt } from "@/lib/jwt.ts";
+import { COOKIE_NAME } from "@/lib/cookies.ts";
 
 /** TypeScript interface for returned user shape */
 export interface CookieUser {
@@ -14,17 +14,21 @@ export interface CookieUser {
   name: string;
   email: string;
   role: Role;
-  schoolDomain: string;
-  Application?: any; // optional, detailed Student Application
-  staffApplication?: any;   // optional, detailed Staff Application
+  school: {
+    id: string;
+    name: string;
+    domain: string;
+  };
+  Application?: any;       // optional, detailed Student Application
+  staffApplication?: any;  // optional, detailed Staff Application
 }
 
-/** In-memory cache to store recent user fetches for a short TTL */
+/** In-memory cache for recent user fetches (short TTL) */
 const userCache = new Map<string, { user: CookieUser; timestamp: number }>();
-const CACHE_TTL = 5000; // milliseconds, adjust as needed
+const CACHE_TTL = 5000; // milliseconds, adjust for performance/freshness tradeoff
 
 /**
- * Retrieves authenticated user info from JWT cookie, scoped to their school.
+ * Retrieves authenticated user info from JWT cookie, fully school-scoped.
  * Returns null if token invalid or user not found.
  */
 export async function cookieUser(): Promise<CookieUser | null> {
@@ -36,22 +40,16 @@ export async function cookieUser(): Promise<CookieUser | null> {
     const payload = verifyJwt(token);
     if (!payload?.id) return null;
 
-    // Check cache first
+    // Return cached user if still fresh
     const cached = userCache.get(payload.id);
     const now = Date.now();
-    if (cached && now - cached.timestamp < CACHE_TTL) {
-      return cached.user;
-    }
+    if (cached && now - cached.timestamp < CACHE_TTL) return cached.user;
 
-    // Fetch basic user info along with their school
+    // Fetch user with full school object
     const user = await prisma.user.findUnique({
       where: { id: payload.id },
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        role: true as Role,
-        school: { select: { id: true, name: true, domain: true } },
+      include: {
+        school: true,  // preload full school object
       },
     });
     if (!user) return null;
@@ -60,17 +58,19 @@ export async function cookieUser(): Promise<CookieUser | null> {
     let staffApplication = null;
 
     // Conditional fetching with school scoping
-    if (user.role === "STUDENT") {
+    if (user.role === Role.STUDENT) {
       Application = await prisma.application.findFirst({
         where: { studentId: payload.id, schoolId: user.school.id },
         include: { previousSchools: true, familyMembers: true },
       });
     }
 
-    const staffRoles = [
-      "ADMIN", "MODERATOR", "PRINCIPAL", "VICE_PRINCIPAL", "TEACHER", "ASSISTANT_TEACHER",
-      "COUNSELOR", "LIBRARIAN", "EXAM_OFFICER", "FINANCE", "HR", "RECEPTIONIST",
-      "IT_SUPPORT", "TRANSPORT", "NURSE", "COOK", "CLEANER", "SECURITY", "MAINTENANCE",
+    const staffRoles: Role[] = [
+      Role.ADMIN, Role.MODERATOR, Role.PRINCIPAL, Role.VICE_PRINCIPAL,
+      Role.TEACHER, Role.ASSISTANT_TEACHER, Role.COUNSELOR, Role.LIBRARIAN,
+      Role.EXAM_OFFICER, Role.FINANCE, Role.HR, Role.RECEPTIONIST,
+      Role.IT_SUPPORT, Role.TRANSPORT, Role.NURSE, Role.COOK, Role.CLEANER,
+      Role.SECURITY, Role.MAINTENANCE,
     ];
     if (staffRoles.includes(user.role)) {
       staffApplication = await prisma.staffApplication.findFirst({
@@ -79,9 +79,17 @@ export async function cookieUser(): Promise<CookieUser | null> {
       });
     }
 
+    // Consolidate into typed object
     const consolidatedUser: CookieUser = {
-      ...user,
-      schoolDomain: user.school.domain,
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      school: {
+        id: user.school.id,
+        name: user.school.name,
+        domain: user.school.domain,
+      },
       Application,
       staffApplication,
     };
@@ -96,34 +104,10 @@ export async function cookieUser(): Promise<CookieUser | null> {
   }
 }
 
-/* Example usage:
-(async () => {
-  const user = await cookieUser();
-  if (user) {
-    console.log(user.role, user.schoolDomain);
-    if (user.Application) console.log(user.Application.grade);
-    if (user.staffApplication) console.log(user.staffApplication.position);
-  }
-})();
-*/
-
 /* -------------------------
 Design reasoning:
-- Fully scopes fetched student/staff applications to the authenticated user's school.
-- Prevents cross-school data leakage while maintaining caching for performance.
-- Ensures security by verifying JWT and not trusting client-provided role info.
-
-Structure:
-- Exports cookieUser() async function.
-- Uses in-memory Map cache keyed by user ID with TTL.
-- Interfaces: CookieUser for type safety.
-
-Implementation guidance:
-- Drop into lib/ and call at top of API routes or server components.
-- Adjust CACHE_TTL for balance between freshness and performance.
-- Can be combined with additional caching (Redis) for multi-instance scaling.
-
-Scalability insight:
-- Easily extendable to new roles or application types.
-- School scoping ensures safe multi-tenant use in a larger platform.
+- Fully scopes applications to authenticated user's school.
+- Preloads school object for zero extra Prisma queries in SchoolAccount-based routes.
+- Caching for performance without sacrificing security.
+- Can be extended to include additional application types or roles.
 ------------------------- */

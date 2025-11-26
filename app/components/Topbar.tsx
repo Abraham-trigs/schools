@@ -1,23 +1,19 @@
-// app/components/Topbar.tsx
-// Purpose: Fixed, mobile-first topbar that dynamically aligns with Sidebar width
-
 "use client";
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Bell, LogOut, ChevronDown, Menu } from "lucide-react";
 import clsx from "clsx";
-import axios from "axios";
 import { useTopbarStore } from "@/app/store/useTopbarStore";
-import { useUserStore } from "@/app/store/useUserStore";
 import { useSidebarStore } from "@/app/store/useSidebarStore";
+import { useAuthStore } from "@/app/store/useAuthStore.ts"; // <-- useAuthStore import
 
 const formatTimestamp = (ts: string) =>
   new Date(ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 
 export default function Topbar() {
   const router = useRouter();
-  const { user, clearUser } = useUserStore();
+  const { user, logout } = useAuthStore(); // <-- pull logout from store
   const { isOpen: sidebarOpen, toggle: toggleSidebar } = useSidebarStore();
   const {
     notifications,
@@ -58,10 +54,10 @@ export default function Topbar() {
     return () => window.removeEventListener("resize", updateStyle);
   }, [sidebarOpen]);
 
+  // ------------------ Logout handler ------------------
   const handleLogout = async () => {
     try {
-      await axios.post("/api/auth/logout");
-      clearUser();
+      await logout(); // <-- use store's logout
       closeAll();
       router.push("/auth/login");
     } catch (err) {
@@ -105,11 +101,8 @@ export default function Topbar() {
   return (
     <header
       style={style}
-      // supports-[backdrop-filter]:bg-[#a50b0b]/20 shadow-md hover:bg-[#570404] bg-white/10 border-b border-white/20 backdrop-blur-3xl supports-[backdrop-filter]:backdrop-blur-md
       className="fixed top-0 right-0 z-50 flex items-center justify-between
                  px-4 py-3 text-white
-                   
-                 
                  transition-all duration-300"
     >
       <button
@@ -121,10 +114,10 @@ export default function Topbar() {
       </button>
 
       <div className="text- font- tracking-wide truncate p-3 py-1 rounded-xl bg-ford-">
-        {/* Dashboard */}
+        {/* Dashboard title */}
       </div>
 
-      <div className=" hover:supports-[backdrop-filter]:bg-ford-secondary hover:supports-[backdrop-filter]:backdrop-blur-md hover:transition-all duration-1000 flex items-center gap-4 relative rounded-2xl px-3  backdrop-blur-3xl  hover:shadow-xl">
+      <div className="hover:supports-[backdrop-filter]:bg-ford-secondary hover:supports-[backdrop-filter]:backdrop-blur-md hover:transition-all duration-1000 flex items-center gap-4 relative rounded-2xl px-3  backdrop-blur-3xl  hover:shadow-xl">
         {/* Notifications */}
         <div className="relative" ref={notifRef}>
           <button
@@ -218,7 +211,7 @@ export default function Topbar() {
             </button>
             <button
               className="w-full flex items-center text- gap-2 text-left px-4 py-2 hover:bg-ford-secondary "
-              onClick={handleLogout}
+              onClick={handleLogout} // <-- store logout
             >
               <LogOut className="w-4 h-4 " /> Logout
             </button>

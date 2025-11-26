@@ -21,7 +21,9 @@
 /build
 
 # ford-school
-/lib/cookies.ts
+/lib/
+/lib/jwt
+
 /.env
 
 # Ignore all public assets for now

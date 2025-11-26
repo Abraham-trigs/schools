@@ -1,8 +1,8 @@
+// app/api/classes/[id]/attendance/route.ts
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/db";
-import { cookieUser } from "@/lib/cookieUser";
+import { prisma, Role } from "@/lib/db";
+import { SchoolAccount } from "@/lib/schoolAccount";
 import { z } from "zod";
-import { Role } from "@prisma/client";
 
 const attendanceSchema = z.object({
   date: z.string().optional(),
@@ -17,10 +17,14 @@ const attendanceSchema = z.object({
   ),
 });
 
-// GET class attendance (all students for a given day)
-export async function GET(req: Request, { params }: { params: { id: string } }) {
-  const user = await cookieUser(req);
-  if (!user) return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
+// -------------------- GET Class Attendance --------------------
+export async function GET(
+  req: Request,
+  { params }: { params: { id: string } }
+) {
+  const schoolAccount = await SchoolAccount.init();
+  if (!schoolAccount)
+    return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
 
   const { searchParams } = new URL(req.url);
   const dateQuery = searchParams.get("date");
@@ -31,21 +35,30 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
 
   const attendance = await prisma.studentAttendance.findMany({
     where: {
-      student: { classId: params.id },
+      student: {
+        classId: params.id,
+        class: { schoolId: schoolAccount.schoolId }, // school scoping
+      },
       date: { gte: startOfDay, lte: endOfDay },
     },
-    include: { student: { include: { user: true } } },
+    include: { student: { include: { user: { select: { id: true, name: true, email: true } } } } },
     orderBy: { student: { user: { name: "asc" } } },
   });
 
   return NextResponse.json(attendance);
 }
 
-// POST bulk class attendance
-export async function POST(req: Request, { params }: { params: { id: string } }) {
-  const user = await cookieUser(req);
-  if (!user) return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
-  if (![Role.ADMIN, Role.TEACHER].includes(user.role))
+// -------------------- POST Bulk Attendance --------------------
+export async function POST(
+  req: Request,
+  { params }: { params: { id: string } }
+) {
+  const schoolAccount = await SchoolAccount.init();
+  if (!schoolAccount)
+    return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
+
+  // Role-based access
+  if (![Role.ADMIN, Role.TEACHER].includes(schoolAccount.role))
     return NextResponse.json({ message: "Forbidden" }, { status: 403 });
 
   try {
@@ -53,21 +66,22 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     const data = attendanceSchema.parse(body);
     const date = data.date ? new Date(data.date) : new Date();
 
-    // Ensure class exists
-    const cls = await prisma.class.findUnique({
-      where: { id: params.id },
-      include: { Student: true },
+    // Ensure class belongs to user's school
+    const cls = await prisma.class.findFirst({
+      where: { id: params.id, schoolId: schoolAccount.schoolId },
+      include: { students: true },
     });
-    if (!cls) return NextResponse.json({ message: "Class not found" }, { status: 404 });
+    if (!cls)
+      return NextResponse.json({ message: "Class not found" }, { status: 404 });
 
-    // Bulk insert or upsert
+    // Bulk upsert attendance records
     const results = await prisma.$transaction(
-      data.records.map(r =>
+      data.records.map((r) =>
         prisma.studentAttendance.upsert({
           where: {
             studentId_date: {
               studentId: r.studentId,
-              date: new Date(date.toDateString()), // Ensure per-day uniqueness
+              date: new Date(date.toDateString()), // per-day uniqueness
             },
           },
           update: {

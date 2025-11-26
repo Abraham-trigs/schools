@@ -1,6 +1,3 @@
-// stores/examStore.ts
-// Zustand store for managing exams with full pagination, search, CRUD, and built-in debounce for search
-
 import { create } from "zustand";
 import { Exam } from "@prisma/client";
 
@@ -8,16 +5,11 @@ interface ExamState {
   exams: Exam[];
   total: number;
   page: number;
-  limit: number;
+  perPage: number;
   totalPages: number;
   loading: boolean;
   error: string | null;
-  fetchExams: (options?: {
-    search?: string;
-    page?: number;
-    limit?: number;
-    studentId?: string;
-  }) => void;
+  fetchExams: (options?: { search?: string; page?: number; perPage?: number; studentId?: string }) => void;
   createExam: (data: Partial<Exam>) => Promise<Exam | null>;
   updateExam: (id: string, data: Partial<Exam>) => Promise<Exam | null>;
   deleteExam: (id: string) => Promise<boolean>;
@@ -25,7 +17,6 @@ interface ExamState {
 }
 
 export const useExamStore = create<ExamState>((set, get) => {
-  // Debounce helper
   let searchTimeout: NodeJS.Timeout | null = null;
   const debounce = (fn: () => void, delay = 300) => {
     if (searchTimeout) clearTimeout(searchTimeout);
@@ -36,31 +27,32 @@ export const useExamStore = create<ExamState>((set, get) => {
     exams: [],
     total: 0,
     page: 1,
-    limit: 20,
+    perPage: 20,
     totalPages: 0,
     loading: false,
     error: null,
 
-    fetchExams: ({ search = "", page = 1, limit = 20, studentId } = {}) => {
+    fetchExams: ({ search = "", page = 1, perPage = 20, studentId } = {}) => {
       debounce(async () => {
         set({ loading: true, error: null });
         try {
           const params = new URLSearchParams();
           if (search) params.append("search", search);
           params.append("page", String(page));
-          params.append("limit", String(limit));
+          params.append("perPage", String(perPage));
           if (studentId) params.append("studentId", studentId);
 
           const res = await fetch(`/api/exams?${params.toString()}`);
           const json = await res.json();
 
           if (res.ok) {
+            const totalPages = Math.ceil(json.total / perPage);
             set({
-              exams: json.data,
+              exams: json.exams,
               total: json.total,
               page,
-              limit,
-              totalPages: json.totalPages,
+              perPage,
+              totalPages,
             });
           } else {
             set({ error: json.error });
@@ -70,7 +62,7 @@ export const useExamStore = create<ExamState>((set, get) => {
         } finally {
           set({ loading: false });
         }
-      }, 300); // debounce delay 300ms
+      }, 300);
     },
 
     createExam: async (data) => {
@@ -82,9 +74,8 @@ export const useExamStore = create<ExamState>((set, get) => {
         });
         const json = await res.json();
         if (res.ok) {
-          // Refetch first page for consistency
-          await get().fetchExams({ page: 1, limit: get().limit });
-          return json.data;
+          await get().fetchExams({ page: 1, perPage: get().perPage });
+          return json;
         } else {
           set({ error: json.error });
           return null;
@@ -105,9 +96,9 @@ export const useExamStore = create<ExamState>((set, get) => {
         const json = await res.json();
         if (res.ok) {
           set({
-            exams: get().exams.map((e) => (e.id === id ? json.data : e)),
+            exams: get().exams.map((e) => (e.id === id ? json : e)),
           });
-          return json.data;
+          return json;
         } else {
           set({ error: json.error });
           return null;
@@ -123,7 +114,7 @@ export const useExamStore = create<ExamState>((set, get) => {
         const res = await fetch(`/api/exams/${id}`, { method: "DELETE" });
         const json = await res.json();
         if (res.ok) {
-          await get().fetchExams({ page: get().page, limit: get().limit });
+          await get().fetchExams({ page: get().page, perPage: get().perPage });
           return true;
         } else {
           set({ error: json.error });
@@ -140,7 +131,7 @@ export const useExamStore = create<ExamState>((set, get) => {
         exams: [],
         total: 0,
         page: 1,
-        limit: 20,
+        perPage: 20,
         totalPages: 0,
         loading: false,
         error: null,

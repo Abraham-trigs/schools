@@ -1,86 +1,81 @@
-// app/api/exams/[id]/route.ts
-// Handles fetching, updating, and deleting a single exam with auth, validation, and role-based access
-
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { z } from "zod";
-import { cookieUser } from "@/lib/cookieUser.ts";
-import { Role } from "@prisma/client";
+import { SchoolAccount } from "@/lib/schoolAccount";
 
-// Zod schema for updating exams
-const ExamUpdateSchema = z.object({
-  subjectId: z.string().cuid().optional(),
-  score: z.preprocess((val) => (val !== undefined ? parseFloat(val as string) : undefined), z.number().optional()),
-  maxScore: z.preprocess((val) => (val !== undefined ? parseFloat(val as string) : undefined), z.number().optional()),
+// Zod schema for creating exams
+const ExamCreateSchema = z.object({
+  studentId: z.string().cuid(),
+  subjectId: z.string().cuid(),
+  score: z.preprocess((val) => parseFloat(val as string), z.number()),
+  maxScore: z.preprocess((val) => parseFloat(val as string), z.number()),
   date: z.preprocess((val) => (val ? new Date(val as string) : undefined), z.date().optional()),
 });
 
-// Helper: check if user can modify exams
-const canModifyExam = (role: Role) => ["TEACHER", "ASSISTANT_TEACHER", "EXAM_OFFICER"].includes(role);
-
-/**
- * Design reasoning:
- * - GET returns single exam; PUT/DELETE enforce role-based access.
- * - Validation ensures numeric and optional date normalization.
- * - Provides consistent JSON errors for front-end to handle.
- *
- * Structure:
- * - GET: fetch single exam
- * - PUT: update exam (authorized roles only)
- * - DELETE: delete exam (authorized roles only)
- *
- * Scalability insight:
- * - Can extend GET to include related metrics, PUT/DELETE could trigger audit logs without breaking interface.
- */
-
-export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
+// -------------------- GET exams with pagination and search --------------------
+export async function GET(req: NextRequest) {
   try {
-    await cookieUser(req);
+    const schoolAccount = await SchoolAccount.init();
+    if (!schoolAccount) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-    const exam = await prisma.exam.findUnique({
-      where: { id: params.id },
-      include: { student: true, subject: true },
-    });
-    if (!exam) return NextResponse.json({ error: "Exam not found" }, { status: 404 });
+    const url = new URL(req.url);
+    const search = url.searchParams.get("search") || "";
+    const studentId = url.searchParams.get("studentId");
+    const page = Number(url.searchParams.get("page") || 1);
+    const limit = Number(url.searchParams.get("limit") || 20);
+    const skip = (page - 1) * limit;
 
-    return NextResponse.json({ data: exam });
+    const where: any = { student: { schoolId: schoolAccount.schoolId } };
+    if (search) where.subject = { name: { contains: search, mode: "insensitive" } };
+    if (studentId) where.studentId = studentId;
+
+    const [exams, total] = await prisma.$transaction([
+      prisma.exam.findMany({
+        where,
+        include: { student: true, subject: true },
+        skip,
+        take: limit,
+        orderBy: { date: "desc" },
+      }),
+      prisma.exam.count({ where }),
+    ]);
+
+    return NextResponse.json({ data: exams, total, page, limit });
   } catch (err: any) {
-    console.error("GET /api/exams/:id error:", err);
-    return NextResponse.json({ error: err.message }, { status: 401 });
+    console.error("GET /api/exams error:", err);
+    return NextResponse.json({ error: err.message || "Server error" }, { status: 500 });
   }
 }
 
-export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
+// -------------------- POST create exam --------------------
+export async function POST(req: NextRequest) {
   try {
-    const user = await cookieUser(req);
-    if (!canModifyExam(user.role)) return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
+    const schoolAccount = await SchoolAccount.init();
+    if (!schoolAccount) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
     const body = await req.json();
-    const parsed = ExamUpdateSchema.parse(body);
+    const parsed = ExamCreateSchema.parse(body);
 
-    const exam = await prisma.exam.update({
-      where: { id: params.id },
+    // Check student belongs to school
+    const student = await prisma.student.findUnique({
+      where: { id: parsed.studentId },
+      select: { schoolId: true },
+    });
+    if (!student || student.schoolId !== schoolAccount.schoolId) {
+      return NextResponse.json({ error: "Student not found in your school" }, { status: 404 });
+    }
+
+    const exam = await prisma.exam.create({
       data: parsed,
       include: { student: true, subject: true },
     });
 
-    return NextResponse.json({ data: exam });
+    return NextResponse.json({ data: exam }, { status: 201 });
   } catch (err: any) {
-    if (err instanceof z.ZodError) return NextResponse.json({ error: err.flatten() }, { status: 400 });
-    console.error("PUT /api/exams/:id error:", err);
-    return NextResponse.json({ error: err.message }, { status: 500 });
-  }
-}
-
-export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
-  try {
-    const user = await cookieUser(req);
-    if (!canModifyExam(user.role)) return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
-
-    await prisma.exam.delete({ where: { id: params.id } });
-    return NextResponse.json({ data: { id: params.id, deleted: true } });
-  } catch (err: any) {
-    console.error("DELETE /api/exams/:id error:", err);
-    return NextResponse.json({ error: err.message }, { status: 500 });
+    if (err instanceof z.ZodError) {
+      return NextResponse.json({ error: err.flatten() }, { status: 400 });
+    }
+    console.error("POST /api/exams error:", err);
+    return NextResponse.json({ error: err.message || "Server error" }, { status: 500 });
   }
 }

@@ -1,10 +1,8 @@
 // app/api/library/route.ts
-// Handles listing and creating Books and LibraryStaff with auth, validation, department control, and school scope.
-
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { z } from "zod";
-import { cookieUser } from "@/lib/cookieUser";
+import { SchoolAccount } from "@/lib/schoolAccount";
 
 const bookSchema = z.object({
   title: z.string().min(1, "Title required"),
@@ -14,18 +12,18 @@ const bookSchema = z.object({
   totalCopies: z.preprocess((v) => Number(v), z.number().min(1)),
 });
 
+// -------------------- GET list of books --------------------
 export async function GET(req: NextRequest) {
-  const user = await cookieUser(req);
-  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const schoolAccount = await SchoolAccount.init();
+  if (!schoolAccount) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const url = new URL(req.url);
   const search = url.searchParams.get("search") || "";
   const page = Number(url.searchParams.get("page") || 1);
   const perPage = Number(url.searchParams.get("perPage") || 10);
 
-  const where = search
-    ? { title: { contains: search, mode: "insensitive" }, schoolId: user.schoolId }
-    : { schoolId: user.schoolId };
+  const where: any = { schoolId: schoolAccount.schoolId };
+  if (search) where.title = { contains: search, mode: "insensitive" };
 
   const [books, total] = await prisma.$transaction([
     prisma.book.findMany({
@@ -38,25 +36,26 @@ export async function GET(req: NextRequest) {
     prisma.book.count({ where }),
   ]);
 
-  return NextResponse.json({ books, total, page });
+  return NextResponse.json({ books, total, page, perPage });
 }
 
+// -------------------- POST create book --------------------
 export async function POST(req: NextRequest) {
-  const user = await cookieUser(req);
-  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const schoolAccount = await SchoolAccount.init();
+  if (!schoolAccount) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   try {
     const body = await req.json();
     const data = bookSchema.parse(body);
 
     const newBook = await prisma.book.create({
-      data: { ...data, available: data.totalCopies, schoolId: user.schoolId },
+      data: { ...data, available: data.totalCopies, schoolId: schoolAccount.schoolId },
       include: { author: true, category: true },
     });
 
     return NextResponse.json(newBook, { status: 201 });
   } catch (err: any) {
     if (err instanceof z.ZodError) return NextResponse.json({ error: err.flatten() }, { status: 400 });
-    return NextResponse.json({ error: err.message }, { status: 500 });
+    return NextResponse.json({ error: err.message || "Server error" }, { status: 500 });
   }
 }

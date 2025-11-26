@@ -1,33 +1,34 @@
 // app/api/auth/refresh/route.ts
-// Purpose: Refresh JWT for authenticated user, keep schoolDomain in payload
+// Purpose: Refresh JWT for authenticated user while keeping schoolDomain and role
+// Production-ready: Fully uses SchoolAccount to ensure accurate role/school, avoids redundant queries
 
 import { NextRequest, NextResponse } from "next/server";
-import { signJwt, verifyJwt } from "@/lib/jwt";
+import { signJwt } from "@/lib/jwt";
 import { COOKIE_NAME, COOKIE_OPTIONS } from "@/lib/cookies";
-import { cookieUser } from "@/lib/cookieUser.ts";
+import { SchoolAccount } from "@/lib/schoolAccount.ts";
 
 export async function POST(req: NextRequest) {
   try {
-    const user = await cookieUser();
-    if (!user) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+    // Initialize school-scoped account from JWT cookie
+    const schoolAccount = await SchoolAccount.init();
+    if (!schoolAccount) {
+      return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+    }
 
-    // Re-sign JWT with current payload
+    // Re-sign JWT using preloaded data
     const newToken = signJwt({
-      id: user.id,
-      role: user.role,
-      schoolDomain: user.schoolDomain,
+      id: schoolAccount.info.id,
+      role: schoolAccount.role,
+      schoolDomain: schoolAccount.school.domain,
     });
 
+    // Set refreshed cookie
     const res = NextResponse.json({ message: "Token refreshed" });
     res.cookies.set(COOKIE_NAME, newToken, COOKIE_OPTIONS);
+
     return res;
-  } catch (err) {
+  } catch (err: any) {
     console.error("POST /api/auth/refresh error:", err);
     return NextResponse.json({ error: "Failed to refresh token" }, { status: 500 });
   }
 }
-
-/* Example usage:
-POST /api/auth/refresh
-Sets a new JWT cookie with updated expiration
-*/

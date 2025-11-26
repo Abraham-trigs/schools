@@ -1,6 +1,7 @@
+// app/api/staffAttendance/route.ts
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { cookieUser } from "@/lib/cookieUser";
+import { SchoolAccount } from "@/lib/schoolAccount";
 import { z } from "zod";
 import { Role } from "@prisma/client";
 
@@ -12,22 +13,40 @@ const attendanceSchema = z.object({
   remarks: z.string().optional(),
 });
 
-export async function GET(req: Request, { params }: { params: { id: string } }) {
-  const user = await cookieUser(req);
-  if (!user) return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
+// =====================
+// GET Attendance Records
+// =====================
+export async function GET(
+  req: Request,
+  { params }: { params: { id: string } }
+) {
+  const schoolAccount = await SchoolAccount.init();
+  if (!schoolAccount) return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
 
+  // Only fetch staff in the same school
   const records = await prisma.staffAttendance.findMany({
-    where: { staffId: params.id },
+    where: {
+      staffId: params.id,
+      staff: { schoolId: schoolAccount.schoolId },
+    },
     orderBy: { date: "desc" },
   });
 
   return NextResponse.json(records);
 }
 
-export async function POST(req: Request, { params }: { params: { id: string } }) {
-  const user = await cookieUser(req);
-  if (!user) return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
-  if (![Role.ADMIN, Role.PRINCIPAL, Role.HR].includes(user.role))
+// =====================
+// POST Create Attendance Record
+// =====================
+export async function POST(
+  req: Request,
+  { params }: { params: { id: string } }
+) {
+  const schoolAccount = await SchoolAccount.init();
+  if (!schoolAccount) return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
+
+  // Role-based access: Only Admin, Principal, or HR can create attendance
+  if (![Role.ADMIN, Role.PRINCIPAL, Role.HR].includes(schoolAccount.role))
     return NextResponse.json({ message: "Forbidden" }, { status: 403 });
 
   try {
@@ -47,6 +66,9 @@ export async function POST(req: Request, { params }: { params: { id: string } })
 
     return NextResponse.json(attendance, { status: 201 });
   } catch (err: any) {
-    return NextResponse.json({ message: err.message }, { status: 400 });
+    if (err instanceof z.ZodError) {
+      return NextResponse.json({ error: err.errors }, { status: 400 });
+    }
+    return NextResponse.json({ message: err.message || "Failed to create attendance" }, { status: 500 });
   }
 }

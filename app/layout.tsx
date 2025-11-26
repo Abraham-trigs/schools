@@ -1,13 +1,15 @@
 // app/layout.tsx
-// Purpose: Global site layout with conditional footer, glass background, and global utilities.
+// Purpose: Global site layout with glass background, footer, scroll helper, notifications, and optional auth guard.
 
 import "./globals.css";
 import { ReactNode } from "react";
 import { Inter } from "next/font/google";
 import { Toaster } from "sonner";
+
 import AppBackground from "./components/AppBackground";
-import FooterWrapper from "@/app/components/home/FooterWrapper.tsx";
+import FooterWrapper from "@/app/components/home/FooterWrapper";
 import BackToTop from "./components/home/BackToTop";
+import AuthGuard from "@/app/components/AuthGuard";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -18,28 +20,37 @@ export const metadata = {
 
 interface RootLayoutProps {
   children: ReactNode;
+  /** Wrap layout in AuthGuard for protected routes */
+  requireAuth?: boolean;
 }
 
-export default function RootLayout({ children }: RootLayoutProps) {
+export default function RootLayout({
+  children,
+  requireAuth = false,
+}: RootLayoutProps) {
+  const content = (
+    <>
+      {/* Main content with glass-like background */}
+      <AppBackground>{children}</AppBackground>
+
+      {/* Footer */}
+      <FooterWrapper />
+
+      {/* Scroll helper */}
+      <BackToTop />
+
+      {/* Global notifications */}
+      <Toaster position="top-right" richColors closeButton duration={4000} />
+    </>
+  );
+
+  // Wrap in AuthGuard if required
   return (
     <html lang="en" className="h-full">
       <body
         className={`${inter.className} h-full text-neutral-dark overflow-x-hidden`}
       >
-        {/* Glass-like translucent background */}
-        <AppBackground>
-          {/* Main content area */}
-          {children}
-        </AppBackground>
-
-        {/* Conditionally rendered footer */}
-        <FooterWrapper />
-
-        {/* Scroll helper */}
-        <BackToTop />
-
-        {/* Global notifications */}
-        <Toaster position="top-right" richColors closeButton duration={4000} />
+        {requireAuth ? <AuthGuard>{content}</AuthGuard> : content}
       </body>
     </html>
   );

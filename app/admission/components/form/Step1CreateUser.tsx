@@ -1,32 +1,25 @@
 "use client";
 
 import React from "react";
-import { useAdmissionStore } from "@/app/store/admissionStore";
-import { useUserStore } from "@/app/store/useUserStore.ts"; // handles SchoolAccount
 
-export default function Step1CreateUser() {
-  const { formData, setField, errors, loading, markUserCreated } =
-    useAdmissionStore();
-  const { createUser } = useUserStore();
-
-  const handleCreate = async () => {
-    if (!formData.wardEmail || !formData.firstName || !formData.surname) return;
-
-    try {
-      const payload = {
-        name: `${formData.firstName} ${formData.surname}`,
-        email: formData.wardEmail,
-        password: formData.password || "default123",
-        role: "STUDENT",
-      };
-
-      const user = await createUser(payload);
-      if (user?.id) markUserCreated(user.id); // store studentId in admissionStore
-    } catch (err: any) {
-      console.error("Error creating user:", err);
-    }
+interface Step1Props {
+  formData: {
+    firstName?: string;
+    surname?: string;
+    wardEmail?: string;
+    password?: string;
   };
+  setField: (field: string, value: string) => void;
+  errors: Record<string, string[]>;
+  loading?: boolean;
+}
 
+export default function Step1CreateUser({
+  formData,
+  setField,
+  errors,
+  loading,
+}: Step1Props) {
   return (
     <div className="space-y-4" aria-labelledby="step1-title">
       <h2
@@ -61,25 +54,20 @@ export default function Step1CreateUser() {
         aria-label="Ward Email"
       />
 
+      <input
+        type="password"
+        className="w-full p-2 rounded bg-[var(--background)] text-[var(--ford-primary)]"
+        placeholder="Password"
+        value={formData.password || ""}
+        onChange={(e) => setField("password", e.target.value)}
+        aria-label="Password"
+      />
+
       {errors.createUser && (
         <div className="text-red-600" role="alert" aria-live="assertive">
           {errors.createUser.join(", ")}
         </div>
       )}
-
-      <button
-        type="button"
-        onClick={handleCreate}
-        disabled={
-          loading ||
-          !formData.firstName ||
-          !formData.surname ||
-          !formData.wardEmail
-        }
-        className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 transition disabled:opacity-50"
-      >
-        {loading ? "Creating..." : "Create User"}
-      </button>
     </div>
   );
 }

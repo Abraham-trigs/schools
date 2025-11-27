@@ -93,3 +93,8 @@ export default function LoginPage() {
 
         <p className="mt-6 text-center text-sm text-white/70">
           &copy; {new Date().getFullYear()} Ford School
+        </p>
+      </div>
+    </div>
+  );
+}

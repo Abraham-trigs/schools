@@ -4,13 +4,14 @@ import { notify } from "@/lib/helpers/notifications.ts";
 export async function apiClient<T>(
   url: string,
   options: RequestInit & {
+    headers?: Record<string, string>; // <-- allow custom headers
     showSuccess?: boolean;
     showError?: boolean;
     successMessage?: string;
     auth?: boolean;
   } = {}
 ): Promise<T> {
-  const { auth = true, showSuccess, showError, successMessage, ...rest } = options;
+  const { auth = true, showSuccess, showError, successMessage, headers = {}, ...rest } = options;
 
   try {
     if (rest.body && typeof rest.body !== "string") {
@@ -18,7 +19,7 @@ export async function apiClient<T>(
     }
 
     const res = await fetch(url, {
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...headers }, // merge custom headers
       credentials: auth ? "include" : undefined,
       ...rest,
     });
@@ -30,10 +31,7 @@ export async function apiClient<T>(
     try {
       data = text ? JSON.parse(text) : null;
     } catch (parseErr) {
-      // If HTML or invalid JSON, wrap in an error
-      throw new Error(
-        `Server returned invalid JSON: ${text.slice(0, 200)}`
-      );
+      throw new Error(`Server returned invalid JSON: ${text.slice(0, 200)}`);
     }
 
     if (!res.ok) {
@@ -42,9 +40,7 @@ export async function apiClient<T>(
       throw new Error(errorMessage);
     }
 
-    if (showSuccess && successMessage) {
-      notify.success(successMessage);
-    }
+    if (showSuccess && successMessage) notify.success(successMessage);
 
     return data as T;
   } catch (err: any) {

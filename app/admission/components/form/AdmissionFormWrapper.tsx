@@ -2,7 +2,8 @@
 
 import React, { useEffect } from "react";
 import { useAdmissionStore } from "@/app/store/admissionStore.ts";
-import Step1UserCreation from "./Step1CreateUser.tsx";
+import { useUserStore } from "@/app/store/useUserStore.ts";
+import Step1CreateUser from "./Step1CreateUser.tsx";
 import Step2PersonalDetails from "./Step2PersonalDetails.tsx";
 import Step3FamilyMembers from "./Step3FamilyMembers.tsx";
 import Step4PreviousSchools from "./Step4PreviousSchools.tsx";
@@ -64,10 +65,17 @@ export default function MultiStepAdmissionForm() {
     fetchClasses,
   } = useAdmissionStore();
 
+  const { createUser, markUserCreated } = useUserStore();
+
   const [currentStep, setCurrentStep] = React.useState(1);
   const progress = ((currentStep - 1) / (steps.length - 1)) * 100;
 
+  useEffect(() => {
+    fetchClasses();
+  }, [fetchClasses]);
+
   const goNext = async () => {
+    // Update backend for steps > 1
     if (currentStep > 1 && currentStep < steps.length) {
       const fieldsToUpdate = stepFields[currentStep] || [];
       const partialUpdate: any = {};
@@ -81,15 +89,36 @@ export default function MultiStepAdmissionForm() {
 
   const goBack = () => setCurrentStep((s) => Math.max(s - 1, 1));
 
-  useEffect(() => {
-    fetchClasses();
-  }, [fetchClasses]);
+  // Single "Next" button handler
+  const handleNext = async () => {
+    if (currentStep === 1) {
+      if (!formData.firstName || !formData.surname || !formData.wardEmail)
+        return;
+
+      try {
+        const payload = {
+          name: `${formData.firstName} ${formData.surname}`,
+          email: formData.wardEmail,
+          password: formData.password || "default123",
+          role: "STUDENT",
+        };
+
+        const user = await createUser(payload);
+        if (user?.id) markUserCreated(user.id);
+      } catch (err: any) {
+        console.error("Error creating user:", err);
+        return;
+      }
+    }
+
+    goNext();
+  };
 
   const renderStep = () => {
     switch (currentStep) {
       case 1:
         return (
-          <Step1UserCreation
+          <Step1CreateUser
             formData={formData}
             setField={setField}
             errors={errors}
@@ -120,6 +149,7 @@ export default function MultiStepAdmissionForm() {
       aria-modal="true"
     >
       <div className="w-full max-w-3xl bg-white rounded-2xl shadow-xl flex flex-col gap-6 p-4 sm:p-6 max-h-[calc(100vh-6rem)] overflow-y-auto">
+        {/* Step Progress */}
         <div className="flex flex-col sm:flex-row justify-between mb-2 sm:mb-4">
           {steps.map((s) => (
             <div
@@ -136,8 +166,10 @@ export default function MultiStepAdmissionForm() {
           ))}
         </div>
 
+        {/* Current Step */}
         <div className="w-full">{renderStep()}</div>
 
+        {/* Navigation Buttons */}
         <div className="flex justify-between flex-wrap gap-2">
           {currentStep > 1 && (
             <button
@@ -151,12 +183,18 @@ export default function MultiStepAdmissionForm() {
           <div className="flex gap-2 ml-auto">
             {currentStep < steps.length ? (
               <button
-                onClick={goNext}
+                onClick={handleNext}
                 className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 transition"
                 aria-label="Go to next step"
-                disabled={currentStep === 1 && !userCreated}
+                disabled={
+                  loading ||
+                  (currentStep === 1 &&
+                    (!formData.firstName ||
+                      !formData.surname ||
+                      !formData.wardEmail))
+                }
               >
-                Next
+                {loading && currentStep === 1 ? "Creating..." : "Next"}
               </button>
             ) : (
               <button
@@ -171,6 +209,7 @@ export default function MultiStepAdmissionForm() {
           </div>
         </div>
 
+        {/* Errors */}
         {Object.keys(errors).length > 0 && (
           <div className="mt-4 p-2 bg-yellow-200 text-black rounded">
             <h3 className="font-bold">Errors:</h3>

@@ -4,7 +4,8 @@ import { create } from "zustand";
 import { z } from "zod";
 import axios from "axios";
 import { useClassesStore } from "./useClassesStore.ts";
-import { useAuthStore } from "./useAuthStore.ts"; // ← replaced SchoolAccount import
+import { useAuthStore } from "./useAuthStore.ts";
+import { API_ENDPOINTS } from "@/lib/api/endpoints.ts";
 
 // ------------------ Types ------------------
 export type FamilyMember = {
@@ -125,47 +126,7 @@ interface AdmissionStore {
 
 // ------------------ Store ------------------
 export const useAdmissionStore = create<AdmissionStore>((set, get) => ({
-  formData: {
-    admissionPin: "",
-    studentId: undefined,
-    classId: "",
-    surname: "",
-    firstName: "",
-    otherNames: "",
-    dateOfBirth: "",
-    nationality: "",
-    sex: "",
-    languages: [],
-    mothersTongue: "",
-    religion: "",
-    denomination: "",
-    hometown: "",
-    region: "",
-    profilePicture: "",
-    wardLivesWith: "",
-    numberOfSiblings: undefined,
-    siblingsOlder: undefined,
-    siblingsYounger: undefined,
-    postalAddress: "",
-    residentialAddress: "",
-    wardMobile: "",
-    wardEmail: "",
-    emergencyContact: "",
-    emergencyMedicalContact: "",
-    medicalSummary: "",
-    bloodType: "",
-    specialDisability: "",
-    feesAcknowledged: false,
-    declarationSigned: false,
-    signature: "",
-    classification: "",
-    submittedBy: "",
-    receivedBy: "",
-    receivedDate: "",
-    remarks: "",
-    previousSchools: [],
-    familyMembers: [],
-  },
+  formData: admissionFormSchema.parse({ admissionPin: "" }),
   availableClasses: [],
   loading: false,
   errors: {},
@@ -183,20 +144,16 @@ export const useAdmissionStore = create<AdmissionStore>((set, get) => ({
     });
   },
 
-  // ------------------ Mark User Created ------------------
   markUserCreated: (studentId: string) => {
     set((state) => ({ formData: { ...state.formData, studentId }, userCreated: true }));
   },
 
   // ------------------ Create User ------------------
-  createUser: async (payload?: { name: string; email: string; password?: string; role?: string }) => {
+  createUser: async (payload) => {
     set({ loading: true, errors: {} });
     try {
-      const schoolId = useAuthStore.getState().user?.school.id; // ← replaced
-      if (!schoolId) {
-        set({ errors: { createUser: ["Unauthorized"] } });
-        return false;
-      }
+      const schoolId = useAuthStore.getState().user?.school.id;
+      if (!schoolId) throw new Error("Unauthorized: School ID missing");
 
       const data = payload || {
         name: `${get().formData.firstName} ${get().formData.surname}`,
@@ -204,14 +161,14 @@ export const useAdmissionStore = create<AdmissionStore>((set, get) => ({
         role: "STUDENT",
       };
 
-      const res = await axios.post("/api/users", data, { headers: { "X-School-ID": schoolId } });
+      const res = await axios.post(API_ENDPOINTS.users, data, {
+        headers: { "X-School-ID": schoolId },
+      });
 
-      if (res.status === 201) {
-        set({ formData: { ...get().formData, studentId: res.data.id }, userCreated: true });
-        return res.data;
-      }
+      set({ formData: { ...get().formData, studentId: res.data.id }, userCreated: true });
+      return res.data;
     } catch (err: any) {
-      if (err.response?.data?.error) set({ errors: { createUser: [err.response.data.error] } });
+      set({ errors: { createUser: [err.response?.data?.error || err.message || "Failed to create user"] } });
       return false;
     } finally {
       set({ loading: false });
@@ -224,62 +181,102 @@ export const useAdmissionStore = create<AdmissionStore>((set, get) => ({
       set({ errors: { submitForm: ["User must be created first."] } });
       return;
     }
+
     set({ loading: true, errors: {} });
     try {
-      const schoolId = useAuthStore.getState().user?.school.id; // ← replaced
-      if (!schoolId) { set({ errors: { submitForm: ["Unauthorized"] } }); return; }
-      await axios.post("/api/admissions", get().formData, { headers: { "X-School-ID": schoolId } });
+      const schoolId = useAuthStore.getState().user?.school.id;
+      if (!schoolId) throw new Error("Unauthorized: School ID missing");
+
+      await axios.post(API_ENDPOINTS.admissions, get().formData, {
+        headers: { "X-School-ID": schoolId },
+      });
+
       set({ submitted: true });
     } catch (err: any) {
-      if (err.response?.data?.error) set({ errors: { submitForm: [err.response.data.error] } });
-    } finally { set({ loading: false }); }
+      set({ errors: { submitForm: [err.response?.data?.error || err.message || "Failed to submit admission"] } });
+    } finally {
+      set({ loading: false });
+    }
   },
 
   // ------------------ Update Admission ------------------
-  updateAdmission: async (updatedFields?: Partial<z.infer<typeof admissionFormSchema>>) => {
+  updateAdmission: async (updatedFields) => {
     const studentId = get().formData.studentId;
-    if (!studentId) { set({ errors: { updateAdmission: ["Student ID missing"] } }); return; }
+    if (!studentId) {
+      set({ errors: { updateAdmission: ["Student ID missing"] } });
+      return;
+    }
 
     set({ loading: true, errors: {} });
     try {
-      const schoolId = useAuthStore.getState().user?.school.id; // ← replaced
-      if (!schoolId) { set({ errors: { updateAdmission: ["Unauthorized"] } }); return; }
+      const schoolId = useAuthStore.getState().user?.school.id;
+      if (!schoolId) throw new Error("Unauthorized: School ID missing");
 
       const body = { ...get().formData, ...updatedFields };
-      await axios.put(`/api/admissions/${studentId}`, body, { headers: { "X-School-ID": schoolId } });
+      await axios.put(`${API_ENDPOINTS.admissions}/${studentId}`, body, {
+        headers: { "X-School-ID": schoolId },
+      });
+
       set({ formData: body });
     } catch (err: any) {
-      if (err.response?.data?.error) set({ errors: { updateAdmission: [err.response.data.error] } });
-    } finally { set({ loading: false }); }
+      set({ errors: { updateAdmission: [err.response?.data?.error || err.message || "Failed to update admission"] } });
+    } finally {
+      set({ loading: false });
+    }
   },
 
   // ------------------ Fetch Student Admission ------------------
-  fetchStudentAdmission: async (studentId: string) => {
+  fetchStudentAdmission: async (studentId) => {
     set({ loading: true, errors: {} });
     try {
-      const schoolId = useAuthStore.getState().user?.school.id; // ← replaced
-      if (!schoolId) { set({ errors: { fetchStudentAdmission: ["Unauthorized"] } }); return; }
-      const res = await axios.get(`/api/admissions/${studentId}`, { headers: { "X-School-ID": schoolId } });
-      if (res.status === 200) get().loadStudentData(res.data.student);
+      const schoolId = useAuthStore.getState().user?.school.id;
+      if (!schoolId) throw new Error("Unauthorized: School ID missing");
+
+      const res = await axios.get(`${API_ENDPOINTS.admissions}/${studentId}`, {
+        headers: { "X-School-ID": schoolId },
+      });
+
+      get().loadStudentData(res.data.student);
     } catch (err: any) {
-      if (err.response?.data?.error) set({ errors: { fetchStudentAdmission: [err.response.data.error] } });
-    } finally { set({ loading: false }); }
+      set({ errors: { fetchStudentAdmission: [err.response?.data?.error || err.message || "Failed to fetch admission"] } });
+    } finally {
+      set({ loading: false });
+    }
   },
 
   // ------------------ Fetch Classes ------------------
   fetchClasses: async () => {
-    const { fetchClasses, classes } = useClassesStore.getState();
-    try { await fetchClasses(1, 100); set({ availableClasses: useClassesStore.getState().classes }); }
-    catch (err: any) { console.error(err); set({ availableClasses: [] }); }
+    try {
+      await useClassesStore.getState().fetchClasses(1, 100);
+      set({ availableClasses: useClassesStore.getState().classes });
+    } catch (err) {
+      console.error(err);
+      set({ availableClasses: [] });
+    }
   },
 
   // ------------------ Family Members ------------------
-  addFamilyMember: (member) => set((state) => ({ formData: { ...state.formData, familyMembers: [...(state.formData.familyMembers || []), member] } })),
-  removeFamilyMember: (idx) => set((state) => ({ formData: { ...state.formData, familyMembers: state.formData.familyMembers?.filter((_, i) => i !== idx) } })),
+  addFamilyMember: (member) =>
+    set((state) => ({
+      formData: { ...state.formData, familyMembers: [...(state.formData.familyMembers || []), member] },
+    })),
+  removeFamilyMember: (idx) =>
+    set((state) => ({
+      formData: {
+        ...state.formData,
+        familyMembers: state.formData.familyMembers?.filter((_, i) => i !== idx),
+      },
+    })),
 
   // ------------------ Previous Schools ------------------
-  addPreviousSchool: (school) => set((state) => ({ formData: { ...state.formData, previousSchools: [...(state.formData.previousSchools || []), school] } })),
-  removePreviousSchool: (idx) => set((state) => ({ formData: { ...state.formData, previousSchools: state.formData.previousSchools?.filter((_, i) => i !== idx) } })),
+  addPreviousSchool: (school) =>
+    set((state) => ({
+      formData: { ...state.formData, previousSchools: [...(state.formData.previousSchools || []), school] },
+    })),
+  removePreviousSchool: (idx) =>
+    set((state) => ({
+      formData: { ...state.formData, previousSchools: state.formData.previousSchools?.filter((_, i) => i !== idx) },
+    })),
 
   // ------------------ Load Student Data ------------------
   loadStudentData: (student) => {

@@ -85,6 +85,32 @@ function normalizeForPrisma(data: any) {
   return out;
 }
 
+function calculateProgress(application: any) {
+  const steps = [
+    ["surname", "firstName", "otherNames", "dateOfBirth", "nationality", "sex"],
+    ["languages", "mothersTongue", "religion", "denomination", "hometown", "region"],
+    ["profilePicture", "wardLivesWith", "numberOfSiblings", "siblingsOlder", "siblingsYounger"],
+    ["postalAddress", "residentialAddress", "wardMobile", "wardEmail", "emergencyContact", "emergencyMedicalContact"],
+    ["medicalSummary", "bloodType", "specialDisability"],
+    ["familyMembers", "previousSchools"],
+    ["feesAcknowledged", "declarationSigned", "signature"],
+  ];
+
+  let completedSteps = 0;
+
+  steps.forEach((stepFields) => {
+    const stepCompleted = stepFields.every((field) => {
+      const value = application[field];
+      if (Array.isArray(value)) return value.length > 0;
+      if (typeof value === "boolean") return value === true;
+      return value !== undefined && value !== null && value !== "";
+    });
+    if (stepCompleted) completedSteps += 1;
+  });
+
+  return Math.round((completedSteps / steps.length) * 100);
+}
+
 async function replaceNestedArraysTx(tx: any, applicationId: string, payload: { previousSchools?: any[]; familyMembers?: any[] }) {
   const promises: Promise<any>[] = [];
   if (payload.previousSchools) {
@@ -150,7 +176,7 @@ export async function GET(req: NextRequest) {
   }
 }
 
-// ------------------ POST create user + student + admission ------------------
+// ------------------ POST create ------------------
 export async function POST(req: NextRequest) {
   try {
     const schoolAccount = await authorize(req);
@@ -172,51 +198,58 @@ export async function POST(req: NextRequest) {
         },
       });
 
-      // 2) Create student linked to user
+      // 2) Create student
       const student = await tx.student.create({
         data: { userId: user.id, schoolId: schoolAccount.schoolId, enrolledAt: new Date(), classId: normalized.classId },
       });
 
-      // 3) Create application linked to student and user
+      // 3) Create application
+      const appData = {
+        studentId: student.id,
+        userId: user.id,
+        schoolId: schoolAccount.schoolId,
+        classId: normalized.classId,
+        dateOfBirth: normalized.dateOfBirth,
+        nationality: normalized.nationality,
+        sex: normalized.sex,
+        languages: normalized.languages,
+        mothersTongue: normalized.mothersTongue,
+        religion: normalized.religion,
+        denomination: normalized.denomination,
+        hometown: normalized.hometown,
+        region: normalized.region,
+        profilePicture: normalized.profilePicture,
+        wardLivesWith: normalized.wardLivesWith,
+        numberOfSiblings: normalized.numberOfSiblings,
+        siblingsOlder: normalized.siblingsOlder,
+        siblingsYounger: normalized.siblingsYounger,
+        postalAddress: normalized.postalAddress,
+        residentialAddress: normalized.residentialAddress,
+        wardMobile: normalized.wardMobile,
+        wardEmail: normalized.wardEmail,
+        emergencyContact: normalized.emergencyContact,
+        emergencyMedicalContact: normalized.emergencyMedicalContact,
+        medicalSummary: normalized.medicalSummary,
+        bloodType: normalized.bloodType,
+        specialDisability: normalized.specialDisability,
+        feesAcknowledged: normalized.feesAcknowledged ?? false,
+        declarationSigned: normalized.declarationSigned ?? false,
+        signature: normalized.signature,
+        classification: normalized.classification,
+        submittedBy: normalized.submittedBy,
+        receivedBy: normalized.receivedBy,
+        receivedDate: normalized.receivedDate,
+        remarks: normalized.remarks,
+        status: normalized.status ?? "DRAFT",
+        progress: 0,
+      };
+
+      // calculate progress
+      appData.progress = calculateProgress({ ...appData, familyMembers: normalized.familyMembers, previousSchools: normalized.previousSchools });
+
       const app = await tx.application.create({
         data: {
-          studentId: student.id,
-          userId: user.id,
-          schoolId: schoolAccount.schoolId,
-          classId: normalized.classId,
-          dateOfBirth: normalized.dateOfBirth,
-          nationality: normalized.nationality,
-          sex: normalized.sex,
-          languages: normalized.languages,
-          mothersTongue: normalized.mothersTongue,
-          religion: normalized.religion,
-          denomination: normalized.denomination,
-          hometown: normalized.hometown,
-          region: normalized.region,
-          profilePicture: normalized.profilePicture,
-          wardLivesWith: normalized.wardLivesWith,
-          numberOfSiblings: normalized.numberOfSiblings,
-          siblingsOlder: normalized.siblingsOlder,
-          siblingsYounger: normalized.siblingsYounger,
-          postalAddress: normalized.postalAddress,
-          residentialAddress: normalized.residentialAddress,
-          wardMobile: normalized.wardMobile,
-          wardEmail: normalized.wardEmail,
-          emergencyContact: normalized.emergencyContact,
-          emergencyMedicalContact: normalized.emergencyMedicalContact,
-          medicalSummary: normalized.medicalSummary,
-          bloodType: normalized.bloodType,
-          specialDisability: normalized.specialDisability,
-          feesAcknowledged: normalized.feesAcknowledged ?? false,
-          declarationSigned: normalized.declarationSigned ?? false,
-          signature: normalized.signature,
-          classification: normalized.classification,
-          submittedBy: normalized.submittedBy,
-          receivedBy: normalized.receivedBy,
-          receivedDate: normalized.receivedDate,
-          remarks: normalized.remarks,
-          status: normalized.status ?? "DRAFT",
-          progress: normalized.progress ?? 0,
+          ...appData,
           previousSchools: normalized.previousSchools ? { create: normalized.previousSchools } : undefined,
           familyMembers: normalized.familyMembers ? { create: normalized.familyMembers } : undefined,
         },

@@ -95,7 +95,35 @@ export const admissionFormSchema = z.object({
   remarks: z.string().optional(),
   previousSchools: z.array(PreviousSchoolSchema).optional(),
   familyMembers: z.array(FamilyMemberSchema).optional(),
+  progress: z.number().default(0),
 });
+
+// ------------------ Helper: Progress Calculation ------------------
+function calculateProgress(formData: any) {
+  const steps = [
+    ["surname", "firstName", "otherNames", "dateOfBirth", "nationality", "sex"],
+    ["languages", "mothersTongue", "religion", "denomination", "hometown", "region"],
+    ["profilePicture", "wardLivesWith", "numberOfSiblings", "siblingsOlder", "siblingsYounger"],
+    ["postalAddress", "residentialAddress", "wardMobile", "wardEmail", "emergencyContact", "emergencyMedicalContact"],
+    ["medicalSummary", "bloodType", "specialDisability"],
+    ["familyMembers", "previousSchools"],
+    ["feesAcknowledged", "declarationSigned", "signature"],
+  ];
+
+  let completedSteps = 0;
+
+  steps.forEach((stepFields) => {
+    const stepCompleted = stepFields.every((field) => {
+      const value = formData[field];
+      if (Array.isArray(value)) return value.length > 0;
+      if (typeof value === "boolean") return value === true;
+      return value !== undefined && value !== null && value !== "";
+    });
+    if (stepCompleted) completedSteps += 1;
+  });
+
+  return Math.round((completedSteps / steps.length) * 100);
+}
 
 // ------------------ Store Interface ------------------
 interface AdmissionStore {
@@ -136,6 +164,10 @@ export const useAdmissionStore = create<AdmissionStore>((set, get) => ({
       let obj: any = state.formData;
       for (let i = 0; i < keys.length - 1; i++) obj = obj[keys[i]];
       obj[keys[keys.length - 1]] = value;
+
+      // Recalculate progress automatically
+      state.formData.progress = calculateProgress(state.formData);
+
       return { formData: state.formData };
     });
   },
@@ -158,10 +190,10 @@ export const useAdmissionStore = create<AdmissionStore>((set, get) => ({
       const studentId = res.data.admission?.studentId;
       const applicationId = res.data.admission?.id;
 
-      set({
-        formData: { ...get().formData, studentId, applicationId },
-        userCreated: true,
-      });
+      const formWithProgress = { ...get().formData, studentId, applicationId };
+      formWithProgress.progress = calculateProgress(formWithProgress);
+
+      set({ formData: formWithProgress, userCreated: true });
 
       return studentId;
     } catch (err: any) {
@@ -186,6 +218,7 @@ export const useAdmissionStore = create<AdmissionStore>((set, get) => ({
       if (!schoolId) throw new Error("Unauthorized: School ID missing");
 
       const body = { ...get().formData, ...updatedFields };
+      body.progress = calculateProgress(body);
       admissionFormSchema.partial().parse(body);
 
       await axios.patch(`/api/admissions/${applicationId}`, body, { headers: { "X-School-ID": schoolId } });
@@ -248,61 +281,81 @@ export const useAdmissionStore = create<AdmissionStore>((set, get) => ({
   },
 
   addFamilyMember: (member) =>
-    set((state) => ({ formData: { ...state.formData, familyMembers: [...(state.formData.familyMembers || []), member] } })),
+    set((state) => {
+      const updated = [...(state.formData.familyMembers || []), member];
+      const formWithProgress = { ...state.formData, familyMembers: updated };
+      formWithProgress.progress = calculateProgress(formWithProgress);
+      return { formData: formWithProgress };
+    }),
+
   removeFamilyMember: (idx) =>
-    set((state) => ({ formData: { ...state.formData, familyMembers: state.formData.familyMembers?.filter((_, i) => i !== idx) } })),
+    set((state) => {
+      const updated = state.formData.familyMembers?.filter((_, i) => i !== idx) || [];
+      const formWithProgress = { ...state.formData, familyMembers: updated };
+      formWithProgress.progress = calculateProgress(formWithProgress);
+      return { formData: formWithProgress };
+    }),
 
   addPreviousSchool: (school) =>
-    set((state) => ({ formData: { ...state.formData, previousSchools: [...(state.formData.previousSchools || []), school] } })),
+    set((state) => {
+      const updated = [...(state.formData.previousSchools || []), school];
+      const formWithProgress = { ...state.formData, previousSchools: updated };
+      formWithProgress.progress = calculateProgress(formWithProgress);
+      return { formData: formWithProgress };
+    }),
+
   removePreviousSchool: (idx) =>
-    set((state) => ({ formData: { ...state.formData, previousSchools: state.formData.previousSchools?.filter((_, i) => i !== idx) } })),
+    set((state) => {
+      const updated = state.formData.previousSchools?.filter((_, i) => i !== idx) || [];
+      const formWithProgress = { ...state.formData, previousSchools: updated };
+      formWithProgress.progress = calculateProgress(formWithProgress);
+      return { formData: formWithProgress };
+    }),
 
   loadStudentData: (admission) => {
     if (!admission) return;
-    set({
-      formData: {
-        ...get().formData,
-        applicationId: admission.id,
-        studentId: admission.student?.id,
-        classId: admission.student?.classId || "",
-        surname: admission.surname,
-        firstName: admission.firstName,
-        otherNames: admission.otherNames,
-        dateOfBirth: new Date(admission.dateOfBirth),
-        nationality: admission.nationality,
-        sex: admission.sex,
-        languages: admission.languages,
-        mothersTongue: admission.mothersTongue,
-        religion: admission.religion,
-        denomination: admission.denomination,
-        hometown: admission.hometown,
-        region: admission.region,
-        profilePicture: admission.profilePicture,
-        wardLivesWith: admission.wardLivesWith,
-        numberOfSiblings: admission.numberOfSiblings,
-        siblingsOlder: admission.siblingsOlder,
-        siblingsYounger: admission.siblingsYounger,
-        postalAddress: admission.postalAddress,
-        residentialAddress: admission.residentialAddress,
-        wardMobile: admission.wardMobile,
-        wardEmail: admission.student?.user?.email,
-        emergencyContact: admission.emergencyContact,
-        emergencyMedicalContact: admission.emergencyMedicalContact,
-        medicalSummary: admission.medicalSummary,
-        bloodType: admission.bloodType,
-        specialDisability: admission.specialDisability,
-        feesAcknowledged: admission.feesAcknowledged,
-        declarationSigned: admission.declarationSigned,
-        signature: admission.signature,
-        classification: admission.classification,
-        submittedBy: admission.submittedBy,
-        receivedBy: admission.receivedBy,
-        receivedDate: admission.receivedDate ? new Date(admission.receivedDate) : null,
-        remarks: admission.remarks,
-        previousSchools: admission.previousSchools || [],
-        familyMembers: admission.familyMembers || [],
-      },
-      userCreated: true,
-    });
+    const formData = {
+      applicationId: admission.id,
+      studentId: admission.student?.id,
+      classId: admission.student?.classId || "",
+      surname: admission.surname,
+      firstName: admission.firstName,
+      otherNames: admission.otherNames,
+      dateOfBirth: new Date(admission.dateOfBirth),
+      nationality: admission.nationality,
+      sex: admission.sex,
+      languages: admission.languages,
+      mothersTongue: admission.mothersTongue,
+      religion: admission.religion,
+      denomination: admission.denomination,
+      hometown: admission.hometown,
+      region: admission.region,
+      profilePicture: admission.profilePicture,
+      wardLivesWith: admission.wardLivesWith,
+      numberOfSiblings: admission.numberOfSiblings,
+      siblingsOlder: admission.siblingsOlder,
+      siblingsYounger: admission.siblingsYounger,
+      postalAddress: admission.postalAddress,
+      residentialAddress: admission.residentialAddress,
+      wardMobile: admission.wardMobile,
+      wardEmail: admission.student?.user?.email,
+      emergencyContact: admission.emergencyContact,
+      emergencyMedicalContact: admission.emergencyMedicalContact,
+      medicalSummary: admission.medicalSummary,
+      bloodType: admission.bloodType,
+      specialDisability: admission.specialDisability,
+      feesAcknowledged: admission.feesAcknowledged,
+      declarationSigned: admission.declarationSigned,
+      signature: admission.signature,
+      classification: admission.classification,
+      submittedBy: admission.submittedBy,
+      receivedBy: admission.receivedBy,
+      receivedDate: admission.receivedDate ? new Date(admission.receivedDate) : null,
+      remarks: admission.remarks,
+      previousSchools: admission.previousSchools || [],
+      familyMembers: admission.familyMembers || [],
+    };
+    formData.progress = calculateProgress(formData);
+    set({ formData, userCreated: true });
   },
 }));

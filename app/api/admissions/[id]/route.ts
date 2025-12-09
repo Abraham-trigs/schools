@@ -77,6 +77,31 @@ function normalizeForPrisma(data: any) {
   return out;
 }
 
+function calculateProgress(application: any) {
+  const steps = [
+    ["surname", "firstName", "otherNames", "dateOfBirth", "nationality", "sex"],
+    ["languages", "mothersTongue", "religion", "denomination", "hometown", "region"],
+    ["profilePicture", "wardLivesWith", "numberOfSiblings", "siblingsOlder", "siblingsYounger"],
+    ["postalAddress", "residentialAddress", "wardMobile", "wardEmail", "emergencyContact", "emergencyMedicalContact"],
+    ["medicalSummary", "bloodType", "specialDisability"],
+    ["familyMembers", "previousSchools"],
+    ["feesAcknowledged", "declarationSigned", "signature"],
+  ];
+
+  let completedSteps = 0;
+  steps.forEach((stepFields) => {
+    const stepCompleted = stepFields.every((field) => {
+      const value = application[field];
+      if (Array.isArray(value)) return value.length > 0;
+      if (typeof value === "boolean") return value === true;
+      return value !== undefined && value !== null && value !== "";
+    });
+    if (stepCompleted) completedSteps += 1;
+  });
+
+  return Math.round((completedSteps / steps.length) * 100);
+}
+
 async function replaceNestedArraysTx(tx: any, applicationId: string, payload: { previousSchools?: any[]; familyMembers?: any[] }) {
   const promises: Promise<any>[] = [];
   if (payload.previousSchools) {
@@ -102,8 +127,10 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
       where: { id: params.id },
       include: { student: { include: { user: true } }, previousSchools: true, familyMembers: true },
     });
+
     if (!admission) return NextResponse.json({ error: "Admission not found" }, { status: 404 });
     if (admission.schoolId !== schoolAccount.schoolId) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+
     return NextResponse.json({ success: true, admission });
   } catch (err: any) {
     return NextResponse.json({ error: err?.message || "Server error" }, { status: 500 });
@@ -115,6 +142,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   try {
     const schoolAccount = await authorize(req);
     const existing = await prisma.application.findUnique({ where: { id: params.id } });
+
     if (!existing) return NextResponse.json({ error: "Admission not found" }, { status: 404 });
     if (existing.schoolId !== schoolAccount.schoolId) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
@@ -122,19 +150,29 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     const parsed = PartialAdmissionSchema.parse(body);
     const normalized = normalizeForPrisma(parsed);
 
-    const admission = await prisma.$transaction(async (tx) => {
+    const updatedAdmission = await prisma.$transaction(async (tx) => {
+      // update main application
       const updatedApp = await tx.application.update({ where: { id: params.id }, data: normalized });
+
+      // update nested arrays
       await replaceNestedArraysTx(tx, params.id, { previousSchools: normalized.previousSchools, familyMembers: normalized.familyMembers });
 
-      // Update student class if classId changed
+      // update student class if changed
       if (normalized.classId && existing.studentId) {
         await tx.student.update({ where: { id: existing.studentId }, data: { classId: normalized.classId } });
+      }
+
+      // calculate updated progress
+      const progress = calculateProgress({ ...updatedApp, previousSchools: normalized.previousSchools, familyMembers: normalized.familyMembers });
+      if (progress !== updatedApp.progress) {
+        await tx.application.update({ where: { id: params.id }, data: { progress } });
+        updatedApp.progress = progress;
       }
 
       return updatedApp;
     });
 
-    return NextResponse.json({ success: true, admission });
+    return NextResponse.json({ success: true, admission: updatedAdmission });
   } catch (err: any) {
     if (err instanceof z.ZodError) {
       const errors = err.errors.map((e) => ({ path: e.path, message: e.message }));
@@ -149,10 +187,12 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
   try {
     const schoolAccount = await authorize(req);
     const existing = await prisma.application.findUnique({ where: { id: params.id } });
+
     if (!existing) return NextResponse.json({ error: "Admission not found" }, { status: 404 });
     if (existing.schoolId !== schoolAccount.schoolId) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
     await prisma.application.delete({ where: { id: params.id } });
+
     return NextResponse.json({ success: true, message: "Admission deleted" });
   } catch (err: any) {
     return NextResponse.json({ error: err?.message || "Server error" }, { status: 500 });

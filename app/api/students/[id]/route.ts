@@ -1,32 +1,26 @@
-// app/api/students/[id]/route.ts
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
-import { SchoolAccount } from "@/lib/schoolAccount";
+import { prisma } from "@/lib/db.ts";
+import { SchoolAccount } from "@/lib/schoolAccount.ts";
+import { z } from "zod";
 
-export async function GET(
-  req: NextRequest,
-  { params }: { params: { id: string } }
-) {
+const updateStudentSchema = z.object({
+  classId: z.string().optional(),
+  gradeId: z.string().optional(),
+  enrolledAt: z.string().optional(),
+});
+
+export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
   try {
     const schoolAccount = await SchoolAccount.init();
     if (!schoolAccount) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-    const studentId = params.id;
-    if (!studentId) return NextResponse.json({ error: "Student ID is required" }, { status: 400 });
-
-    // Fetch student and all relations
     const student = await prisma.student.findUnique({
-      where: { id: studentId },
+      where: { id: params.id },
       include: {
         user: true,
         class: true,
-        application: {
-          include: {
-            previousSchools: true,
-            familyMembers: true,
-            admissionPayment: true,
-          },
-        },
+        grade: true,
+        application: { include: { previousSchools: true, familyMembers: true, admissionPayment: true } },
         exams: true,
         StudentAttendance: true,
         Borrow: { include: { book: true } },
@@ -36,14 +30,49 @@ export async function GET(
     });
 
     if (!student) return NextResponse.json({ error: "Student not found" }, { status: 404 });
-
-    // Enforce school scoping
-    if (student.schoolId !== schoolAccount.schoolId) {
+    if (student.schoolId !== (await SchoolAccount.init())?.schoolId)
       return NextResponse.json({ error: "Access denied" }, { status: 403 });
-    }
 
-    return NextResponse.json({ student }, { status: 200 });
+    return NextResponse.json({ student });
   } catch (err: any) {
     return NextResponse.json({ error: err.message || "Server error" }, { status: 500 });
+  }
+}
+
+export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
+  try {
+    const schoolAccount = await SchoolAccount.init();
+    if (!schoolAccount) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+    const body = await req.json();
+    const data = updateStudentSchema.parse(body);
+
+    const updatedStudent = await prisma.student.update({
+      where: { id: params.id },
+      data: {
+        classId: data.classId,
+        gradeId: data.gradeId,
+        enrolledAt: data.enrolledAt ? new Date(data.enrolledAt) : undefined,
+      },
+      include: { user: true, class: true, grade: true },
+    });
+
+    return NextResponse.json(updatedStudent);
+  } catch (err: any) {
+    if (err instanceof z.ZodError)
+      return NextResponse.json({ error: err.errors }, { status: 400 });
+    return NextResponse.json({ error: err.message || "Failed to update student" }, { status: 500 });
+  }
+}
+
+export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
+  try {
+    const schoolAccount = await SchoolAccount.init();
+    if (!schoolAccount) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+    await prisma.student.delete({ where: { id: params.id } });
+    return NextResponse.json({ message: "Student deleted successfully" });
+  } catch (err: any) {
+    return NextResponse.json({ error: err.message || "Failed to delete student" }, { status: 500 });
   }
 }

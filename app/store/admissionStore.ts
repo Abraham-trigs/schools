@@ -3,7 +3,7 @@
 import { create } from "zustand";
 import { z, ZodObject } from "zod";
 import axios from "axios";
-import { useAuthStore } from "./useAuthStore";
+import { useAuthStore } from "./useAuthStore.ts";
 
 // ------------------ Types ------------------
 export type FamilyMember = {

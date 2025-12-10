@@ -1,45 +1,43 @@
+// app/api/classes/route.ts
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db.ts";
 import { SchoolAccount } from "@/lib/schoolAccount.ts";
 import { z } from "zod";
 
-// =====================
-// Validation Schemas
-// =====================
-const classSchema = z.object({
+// -------------------- Schemas --------------------
+
+// POST / Create Class
+const createClassSchema = z.object({
   name: z.string().min(1, "Class name is required"),
-  grade: z.string().min(1, "Grade is required"),
 });
 
+// GET / Query params
 const querySchema = z.object({
   page: z.string().optional(),
   perPage: z.string().optional(),
   search: z.string().optional(),
-  grade: z.string().optional(),
   staffId: z.string().optional(),
   subjectId: z.string().optional(),
   examId: z.string().optional(),
   studentId: z.string().optional(),
 });
 
-// =====================
-// GET Classes
-// =====================
+// -------------------- GET Classes --------------------
 export async function GET(req: Request) {
   try {
     const schoolAccount = await SchoolAccount.init();
-    if (!schoolAccount) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    if (!schoolAccount)
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
     const { searchParams } = new URL(req.url);
     const query = querySchema.parse(Object.fromEntries(searchParams.entries()));
 
-    const page = Number(query.page || "1");
-    const perPage = Number(query.perPage || "10");
+    const page = Number(query.page || 1);
+    const perPage = Number(query.perPage || 10);
 
     const where: any = { schoolId: schoolAccount.schoolId };
 
     if (query.search) where.name = { contains: query.search, mode: "insensitive" };
-    if (query.grade) where.grade = query.grade;
     if (query.staffId) where.staff = { some: { id: query.staffId } };
     if (query.subjectId) where.subjects = { some: { id: query.subjectId } };
     if (query.examId) where.exams = { some: { id: query.examId } };
@@ -53,20 +51,13 @@ export async function GET(req: Request) {
       take: perPage,
       orderBy: { name: "asc" },
       include: {
+        grades: { select: { id: true, name: true } },
         staff: {
           select: {
             id: true,
             position: true,
             hireDate: true,
-            user: {
-              select: {
-                id: true,
-                firstName: true,
-                surname: true,
-                otherNames: true,
-                email: true,
-              },
-            },
+            user: { select: { id: true, firstName: true, surname: true, otherNames: true, email: true } },
           },
         },
         subjects: { select: { id: true, name: true } },
@@ -76,21 +67,13 @@ export async function GET(req: Request) {
             id: true,
             userId: true,
             enrolledAt: true,
-            user: {
-              select: {
-                id: true,
-                firstName: true,
-                surname: true,
-                otherNames: true,
-                email: true,
-              },
-            },
+            user: { select: { id: true, firstName: true, surname: true, otherNames: true, email: true } },
           },
         },
       },
     });
 
-    // Add fullName fields for convenience
+    // Add fullName for staff and students
     const classesWithFullName = classes.map((cls) => ({
       ...cls,
       staff: cls.staff.map((st) => ({
@@ -118,23 +101,30 @@ export async function GET(req: Request) {
   }
 }
 
-// =====================
-// POST Create Class
-// =====================
+// -------------------- POST Create Class --------------------
 export async function POST(req: Request) {
   try {
     const schoolAccount = await SchoolAccount.init();
-    if (!schoolAccount) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    if (!schoolAccount)
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
     const body = await req.json();
-    const data = classSchema.parse(body);
+    const data = createClassSchema.parse(body);
 
+    // Create class + default grades A, B, C
     const newClass = await prisma.class.create({
       data: {
         name: data.name,
-        grade: data.grade,
         schoolId: schoolAccount.schoolId,
+        grades: {
+          create: [
+            { name: "A" },
+            { name: "B" },
+            { name: "C" },
+          ],
+        },
       },
+      include: { grades: true }, // return grades in response
     });
 
     return NextResponse.json(newClass, { status: 201 });

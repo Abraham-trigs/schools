@@ -1,4 +1,3 @@
-// app/store/studentStore.ts
 "use client";
 
 import { create } from "zustand";
@@ -28,7 +27,8 @@ export type PreviousSchool = {
 export type AdmissionData = {
   id: string;
   studentId: string;
-  classId: string;
+  classId?: string;
+  gradeId?: string;
   profilePicture?: string;
   surname: string;
   firstName: string;
@@ -64,37 +64,38 @@ export type AdmissionData = {
 
 export type StudentProfile = {
   id: string;
+  userId: string;
   name: string;
   email: string;
   classId?: string;
+  gradeId?: string;
   admission?: AdmissionData;
-  grades?: any[];
+  class?: { id: string; name: string };
+  grade?: { id: string; name: string };
   attendance?: any[];
   exams?: any[];
 };
 
 export type StudentListItem = {
   id: string;
+  userId: string;
   name: string;
   email: string;
   classId?: string;
-  admission?: AdmissionData;
+  gradeId?: string;
 };
 
 // ------------------ Store Interface ------------------
 interface StudentStore {
-  // Single student
   profile: StudentProfile | null;
   loadingProfile: boolean;
   profileErrors: string[];
 
-  // List of students
   students: StudentListItem[];
   loadingList: boolean;
   listErrors: string[];
   pagination: { page: number; perPage: number; total: number; totalPages: number };
 
-  // Actions
   fetchProfile: (studentId: string) => Promise<void>;
   clearProfile: () => void;
 
@@ -133,8 +134,17 @@ export const useStudentStore = create<StudentStore>((set, get) => ({
     set({ loadingList: true, listErrors: [] });
     try {
       const res = await axios.get(`/api/students?page=${page}&perPage=${perPage}&search=${encodeURIComponent(search)}`);
+      const students: StudentListItem[] = res.data.students.map((s: any) => ({
+        id: s.id,
+        userId: s.userId,
+        name: [s.user.firstName, s.user.surname, s.user.otherNames].filter(Boolean).join(" "),
+        email: s.user.email,
+        classId: s.classId,
+        gradeId: s.gradeId,
+      }));
+
       set({
-        students: res.data.students || [],
+        students,
         pagination: res.data.pagination || { page, perPage, total: 0, totalPages: 1 },
       });
     } catch (err: any) {
@@ -144,5 +154,10 @@ export const useStudentStore = create<StudentStore>((set, get) => ({
     }
   },
 
-  clearStudents: () => set({ students: [], pagination: { page: 1, perPage: 20, total: 0, totalPages: 1 }, listErrors: [] }),
+  clearStudents: () =>
+    set({
+      students: [],
+      pagination: { page: 1, perPage: 20, total: 0, totalPages: 1 },
+      listErrors: [],
+    }),
 }));

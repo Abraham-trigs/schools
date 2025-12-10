@@ -104,22 +104,27 @@ export const admissionFormSchema = z.object({
 // ------------------ Step Definitions ------------------
 const STEP_FIELDS: string[][] = [
   // Step 1: User + Student + minimal Application
-  ["surname", "firstName", "otherNames", "email", "password", "classId"],
-  // Step 2
-  ["dateOfBirth", "nationality", "sex"],
-  // Step 3
+  ["surname", "firstName", "wardEmail", "dateOfBirth", "nationality", "sex", "classId"],
+  
+  // Step 2: Personal & linguistic info
   ["languages", "mothersTongue", "religion", "denomination", "hometown", "region"],
-  // Step 4
+  
+  // Step 3: Ward details
   ["profilePicture", "wardLivesWith", "numberOfSiblings", "siblingsOlder", "siblingsYounger"],
-  // Step 5
+  
+  // Step 4: Contact & emergency info
   ["postalAddress", "residentialAddress", "wardMobile", "wardEmail", "emergencyContact", "emergencyMedicalContact"],
-  // Step 6
+  
+  // Step 5: Medical info
   ["medicalSummary", "bloodType", "specialDisability"],
-  // Step 7
+  
+  // Step 6: Previous schools & family
   ["previousSchools", "familyMembers"],
-  // Step 8
+  
+  // Step 7: Fees & declaration
   ["feesAcknowledged", "declarationSigned", "signature"],
 ];
+
 
 // ------------------ Helper: Progress Calculation ------------------
 function calculateProgress(formData: any) {

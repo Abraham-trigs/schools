@@ -235,7 +235,6 @@ model Application {
   postalAddress           String?
   residentialAddress      String?
   wardMobile              String?
-  wardEmail               String?
   emergencyContact        String?
   emergencyMedicalContact String?
 

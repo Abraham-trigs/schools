@@ -70,8 +70,8 @@ export type StudentProfile = {
   classId?: string;
   gradeId?: string;
   admission?: AdmissionData;
-  class?: { id: string; name: string };
-  grade?: { id: string; name: string };
+  Class?: { id: string; name: string };
+  Grade?: { id: string; name: string };
   attendance?: any[];
   exams?: any[];
 };
@@ -139,8 +139,8 @@ export const useStudentStore = create<StudentStore>((set, get) => ({
         userId: s.userId,
         name: [s.user.firstName, s.user.surname, s.user.otherNames].filter(Boolean).join(" "),
         email: s.user.email,
-        classId: s.classId,
-        gradeId: s.gradeId,
+        classId: s.Class?.id,
+        gradeId: s.Grade?.id,
       }));
 
       set({

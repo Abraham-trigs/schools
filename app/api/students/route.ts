@@ -1,6 +1,7 @@
+// app/api/students/route.ts
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/db.ts";
-import { SchoolAccount } from "@/lib/schoolAccount.ts";
+import { prisma } from "@/lib/db";
+import { SchoolAccount } from "@/lib/schoolAccount";
 import { z } from "zod";
 
 // ---------------- Query Validation ----------------
@@ -12,7 +13,7 @@ const querySchema = z.object({
   gradeId: z.string().optional(),
 });
 
-// ---------------- Create/Update Payload ----------------
+// ---------------- Create Student Payload ----------------
 const studentSchema = z.object({
   userId: z.string(),
   classId: z.string().optional(),
@@ -23,8 +24,9 @@ const studentSchema = z.object({
 export async function GET(req: NextRequest) {
   try {
     const schoolAccount = await SchoolAccount.init();
-    if (!schoolAccount)
+    if (!schoolAccount) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
 
     const { searchParams } = new URL(req.url);
     const query = querySchema.parse(Object.fromEntries(searchParams.entries()));
@@ -34,6 +36,8 @@ export async function GET(req: NextRequest) {
     const skip = (page - 1) * perPage;
 
     const where: any = { schoolId: schoolAccount.schoolId };
+
+    // Search filter
     if (query.search) {
       where.OR = [
         { user: { firstName: { contains: query.search, mode: "insensitive" } } },
@@ -41,6 +45,8 @@ export async function GET(req: NextRequest) {
         { user: { otherNames: { contains: query.search, mode: "insensitive" } } },
       ];
     }
+
+    // Class + Grade filtering
     if (query.classId) where.classId = query.classId;
     if (query.gradeId) where.gradeId = query.gradeId;
 
@@ -49,24 +55,39 @@ export async function GET(req: NextRequest) {
         where,
         include: {
           user: true,
-          class: true,
-          grade: true,
-          application: { include: { previousSchools: true, familyMembers: true, admissionPayment: true } },
+          school: true,
+          Class: true,
+          Grade: true,
+          subjects: true,
+          application: {
+            include: {
+              previousSchools: true,
+              familyMembers: true,
+              admissionPayment: true,
+            },
+          },
         },
         skip,
         take: perPage,
         orderBy: { enrolledAt: "desc" },
       }),
+
       prisma.student.count({ where }),
     ]);
 
     return NextResponse.json({
       students,
-      pagination: { total, page, perPage, totalPages: Math.ceil(total / perPage) },
+      pagination: {
+        total,
+        page,
+        perPage,
+        totalPages: Math.ceil(total / perPage),
+      },
     });
   } catch (err: any) {
-    if (err instanceof z.ZodError)
+    if (err instanceof z.ZodError) {
       return NextResponse.json({ error: err.errors }, { status: 400 });
+    }
     return NextResponse.json({ error: err.message || "Server error" }, { status: 500 });
   }
 }
@@ -74,7 +95,9 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const schoolAccount = await SchoolAccount.init();
-    if (!schoolAccount) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    if (!schoolAccount) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
 
     const body = await req.json();
     const data = studentSchema.parse(body);
@@ -89,15 +112,19 @@ export async function POST(req: NextRequest) {
       },
       include: {
         user: true,
-        class: true,
-        grade: true,
+        Class: true,
+        Grade: true,
       },
     });
 
     return NextResponse.json(newStudent, { status: 201 });
   } catch (err: any) {
-    if (err instanceof z.ZodError)
+    if (err instanceof z.ZodError) {
       return NextResponse.json({ error: err.errors }, { status: 400 });
-    return NextResponse.json({ error: err.message || "Failed to create student" }, { status: 500 });
+    }
+    return NextResponse.json(
+      { error: err.message || "Failed to create student" },
+      { status: 500 }
+    );
   }
 }

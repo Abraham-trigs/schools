@@ -44,20 +44,25 @@ export async function GET(
       },
     });
 
-    if (!student) {
-      return NextResponse.json({ error: "Student not found" }, { status: 404 });
-    }
+    if (!student) return NextResponse.json({ error: "Student not found" }, { status: 404 });
+    if (student.schoolId !== schoolAccount.schoolId) return NextResponse.json({ error: "Access denied" }, { status: 403 });
 
-    if (student.schoolId !== schoolAccount.schoolId) {
-      return NextResponse.json({ error: "Access denied" }, { status: 403 });
-    }
+    // Include all main route data as well for completeness
+    const fullData = {
+      ...student,
+      minimalListData: {
+        id: student.id,
+        userId: student.userId,
+        name: [student.user.firstName, student.user.surname, student.user.otherNames].filter(Boolean).join(" "),
+        email: student.user.email,
+        classId: student.Class?.id,
+        gradeId: student.Grade?.id,
+      },
+    };
 
-    return NextResponse.json({ student });
+    return NextResponse.json({ student: fullData });
   } catch (err: any) {
-    return NextResponse.json(
-      { error: err.message || "Server error" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: err.message || "Server error" }, { status: 500 });
   }
 }
 
@@ -67,9 +72,7 @@ export async function PUT(
 ) {
   try {
     const schoolAccount = await SchoolAccount.init();
-    if (!schoolAccount) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    if (!schoolAccount) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
     const body = await req.json();
     const data = updateStudentSchema.parse(body);
@@ -90,14 +93,8 @@ export async function PUT(
 
     return NextResponse.json(updatedStudent);
   } catch (err: any) {
-    if (err instanceof z.ZodError) {
-      return NextResponse.json({ error: err.errors }, { status: 400 });
-    }
-
-    return NextResponse.json(
-      { error: err.message || "Failed to update student" },
-      { status: 500 }
-    );
+    if (err instanceof z.ZodError) return NextResponse.json({ error: err.errors }, { status: 400 });
+    return NextResponse.json({ error: err.message || "Failed to update student" }, { status: 500 });
   }
 }
 
@@ -107,17 +104,12 @@ export async function DELETE(
 ) {
   try {
     const schoolAccount = await SchoolAccount.init();
-    if (!schoolAccount) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    if (!schoolAccount) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
     await prisma.student.delete({ where: { id: params.id } });
 
     return NextResponse.json({ message: "Student deleted successfully" });
   } catch (err: any) {
-    return NextResponse.json(
-      { error: err.message || "Failed to delete student" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: err.message || "Failed to delete student" }, { status: 500 });
   }
 }

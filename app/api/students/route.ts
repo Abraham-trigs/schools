@@ -37,7 +37,6 @@ export async function GET(req: NextRequest) {
 
     const where: any = { schoolId: schoolAccount.schoolId };
 
-    // Search filter
     if (query.search) {
       where.OR = [
         { user: { firstName: { contains: query.search, mode: "insensitive" } } },
@@ -46,7 +45,6 @@ export async function GET(req: NextRequest) {
       ];
     }
 
-    // Class + Grade filtering
     if (query.classId) where.classId = query.classId;
     if (query.gradeId) where.gradeId = query.gradeId;
 
@@ -55,23 +53,13 @@ export async function GET(req: NextRequest) {
         where,
         include: {
           user: true,
-          school: true,
           Class: true,
           Grade: true,
-          subjects: true,
-          application: {
-            include: {
-              previousSchools: true,
-              familyMembers: true,
-              admissionPayment: true,
-            },
-          },
         },
         skip,
         take: perPage,
         orderBy: { enrolledAt: "desc" },
       }),
-
       prisma.student.count({ where }),
     ]);
 
@@ -122,9 +110,6 @@ export async function POST(req: NextRequest) {
     if (err instanceof z.ZodError) {
       return NextResponse.json({ error: err.errors }, { status: 400 });
     }
-    return NextResponse.json(
-      { error: err.message || "Failed to create student" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: err.message || "Failed to create student" }, { status: 500 });
   }
 }

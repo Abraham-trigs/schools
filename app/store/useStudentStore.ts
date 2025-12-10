@@ -74,6 +74,14 @@ export type StudentProfile = {
   Grade?: { id: string; name: string };
   attendance?: any[];
   exams?: any[];
+  minimalListData?: {
+    id: string;
+    userId: string;
+    name: string;
+    email: string;
+    classId?: string;
+    gradeId?: string;
+  };
 };
 
 export type StudentListItem = {
@@ -119,7 +127,19 @@ export const useStudentStore = create<StudentStore>((set, get) => ({
     set({ loadingProfile: true, profileErrors: [] });
     try {
       const res = await axios.get(`/api/students/${studentId}`);
-      set({ profile: res.data.student });
+      const student: StudentProfile = res.data.student;
+
+      // Map minimalListData for consistency
+      student.minimalListData = {
+        id: student.id,
+        userId: student.userId,
+        name: student.name,
+        email: student.email,
+        classId: student.Class?.id,
+        gradeId: student.Grade?.id,
+      };
+
+      set({ profile: student });
     } catch (err: any) {
       set({ profileErrors: [err.response?.data?.error || err.message] });
     } finally {

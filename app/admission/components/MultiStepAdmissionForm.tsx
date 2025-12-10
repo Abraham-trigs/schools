@@ -12,6 +12,7 @@ import {
 } from "@/app/store/admissionStore.ts";
 import { z } from "zod";
 import { motion, AnimatePresence } from "framer-motion";
+import { useRouter } from "next/navigation";
 
 const STEP_TITLES = [
   "User Info",
@@ -48,6 +49,7 @@ const LabeledInput: React.FC<LabeledInputProps> = ({
 );
 
 export default function MultiStepAdmissionForm() {
+  const router = useRouter(); // initialize router
   const [currentStep, setCurrentStep] = useState(0);
   const { formData, setField, completeStep, loading } = useAdmissionStore();
 
@@ -74,8 +76,15 @@ export default function MultiStepAdmissionForm() {
   const onNext = async (data: any) => {
     Object.keys(data).forEach((key) => setField(key, data[key]));
     const success = await completeStep(currentStep);
-    if (success && currentStep < STEP_TITLES.length - 1)
+
+    if (!success) return;
+
+    if (currentStep < STEP_TITLES.length - 1) {
       setCurrentStep(currentStep + 1);
+    } else {
+      // Final step completed → redirect to dashboard
+      router.push("/dashboard");
+    }
   };
 
   const onBack = () => setCurrentStep((prev) => Math.max(prev - 1, 0));

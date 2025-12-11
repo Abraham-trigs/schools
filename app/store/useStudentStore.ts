@@ -69,9 +69,9 @@ export type StudentProfile = {
   email: string;
   classId?: string;
   gradeId?: string;
+  className?: string;
+  gradeName?: string;
   admission?: AdmissionData;
-  Class?: { id: string; name: string };
-  Grade?: { id: string; name: string };
   attendance?: any[];
   exams?: any[];
   minimalListData?: {
@@ -81,6 +81,8 @@ export type StudentProfile = {
     email: string;
     classId?: string;
     gradeId?: string;
+    className?: string;
+    gradeName?: string;
   };
 };
 
@@ -90,7 +92,9 @@ export type StudentListItem = {
   name: string;
   email: string;
   classId?: string;
+  className?: string;
   gradeId?: string;
+  gradeName?: string;
 };
 
 // ------------------ Store Interface ------------------
@@ -129,7 +133,10 @@ export const useStudentStore = create<StudentStore>((set, get) => ({
       const res = await axios.get(`/api/students/${studentId}`);
       const student: StudentProfile = res.data.student;
 
-      // Map minimalListData for consistency
+      // Map class and grade names directly
+      student.className = student.Class?.name;
+      student.gradeName = student.Grade?.name;
+
       student.minimalListData = {
         id: student.id,
         userId: student.userId,
@@ -137,6 +144,8 @@ export const useStudentStore = create<StudentStore>((set, get) => ({
         email: student.email,
         classId: student.Class?.id,
         gradeId: student.Grade?.id,
+        className: student.Class?.name,
+        gradeName: student.Grade?.name,
       };
 
       set({ profile: student });
@@ -160,7 +169,9 @@ export const useStudentStore = create<StudentStore>((set, get) => ({
         name: [s.user.firstName, s.user.surname, s.user.otherNames].filter(Boolean).join(" "),
         email: s.user.email,
         classId: s.Class?.id,
+        className: s.Class?.name,
         gradeId: s.Grade?.id,
+        gradeName: s.Grade?.name,
       }));
 
       set({

@@ -123,17 +123,26 @@ export const useClassesStore = create<ClassesStore>((set, get) => ({
     }
   },
 
-  fetchStudents: async (classId: string) => {
-    set({ loading: true });
-    try {
-      const studentStore = useStudentStore.getState();
-      await studentStore.fetchStudents(1, 20, "");
-      const students = studentStore.students.filter((s) => s.classId === classId);
-      set({ students, loading: false });
-    } catch (err: any) {
-      set({ error: err.response?.data?.error || err.message, loading: false });
-    }
-  },
+fetchStudents: async (classId: string) => {
+  set({ loading: true, error: null });
+  try {
+    const studentStore = useStudentStore.getState();
+    await studentStore.fetchStudents(1, 20, "");
+    const { classes } = get();
+    const students = studentStore.students
+      .filter((s) => s.classId === classId)
+      .map((s) => ({
+        ...s,
+        className: s.classId ? classes.find((c) => c.id === s.classId)?.name ?? "—" : "—",
+        gradeName: s.gradeId
+          ? classes.find((c) => c.id === s.classId)?.grades?.find((g) => g.id === s.gradeId)?.name ?? "—"
+          : "—",
+      }));
+    set({ students, loading: false });
+  } catch (err: any) {
+    set({ error: err.response?.data?.error || err.message, loading: false });
+  }
+},
 
   fetchAttendance: async (classId: string, date?: string) => {
     set({ loading: true });

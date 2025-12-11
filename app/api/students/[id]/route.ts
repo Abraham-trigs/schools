@@ -1,4 +1,6 @@
 // app/api/students/[id]/route.ts
+// Purpose: Full CRUD for individual student including relations and school validation
+
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { SchoolAccount } from "@/lib/schoolAccount";
@@ -10,15 +12,10 @@ const updateStudentSchema = z.object({
   enrolledAt: z.string().optional(),
 });
 
-export async function GET(
-  req: NextRequest,
-  { params }: { params: { id: string } }
-) {
+export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
   try {
     const schoolAccount = await SchoolAccount.init();
-    if (!schoolAccount) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    if (!schoolAccount) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
     const student = await prisma.student.findUnique({
       where: { id: params.id },
@@ -28,13 +25,7 @@ export async function GET(
         Class: true,
         Grade: true,
         subjects: true,
-        application: {
-          include: {
-            previousSchools: true,
-            familyMembers: true,
-            admissionPayment: true,
-          },
-        },
+        application: { include: { previousSchools: true, familyMembers: true, admissionPayment: true } },
         Exam: true,
         StudentAttendance: true,
         Parent: true,
@@ -47,7 +38,6 @@ export async function GET(
     if (!student) return NextResponse.json({ error: "Student not found" }, { status: 404 });
     if (student.schoolId !== schoolAccount.schoolId) return NextResponse.json({ error: "Access denied" }, { status: 403 });
 
-    // Include all main route data as well for completeness
     const fullData = {
       ...student,
       minimalListData: {
@@ -66,10 +56,7 @@ export async function GET(
   }
 }
 
-export async function PUT(
-  req: NextRequest,
-  { params }: { params: { id: string } }
-) {
+export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
   try {
     const schoolAccount = await SchoolAccount.init();
     if (!schoolAccount) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -84,11 +71,7 @@ export async function PUT(
         gradeId: data.gradeId,
         enrolledAt: data.enrolledAt ? new Date(data.enrolledAt) : undefined,
       },
-      include: {
-        user: true,
-        Class: true,
-        Grade: true,
-      },
+      include: { user: true, Class: true, Grade: true },
     });
 
     return NextResponse.json(updatedStudent);
@@ -98,10 +81,7 @@ export async function PUT(
   }
 }
 
-export async function DELETE(
-  req: NextRequest,
-  { params }: { params: { id: string } }
-) {
+export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
   try {
     const schoolAccount = await SchoolAccount.init();
     if (!schoolAccount) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -113,3 +93,8 @@ export async function DELETE(
     return NextResponse.json({ error: err.message || "Failed to delete student" }, { status: 500 });
   }
 }
+
+// ------------------- Design reasoning -------------------
+// Structure: GET (fetch), PUT (update), DELETE (remove)
+// Implementation guidance: integrates with SchoolAccount, returns full student relations
+// Scalability insight: additional relations (like attendance summaries, grades) can be added without breaking existing contract

@@ -1,4 +1,6 @@
 // app/api/students/route.ts
+// Purpose: CRUD + paginated + searchable student list endpoint for a school
+
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { SchoolAccount } from "@/lib/schoolAccount";
@@ -18,15 +20,13 @@ const studentSchema = z.object({
   userId: z.string(),
   classId: z.string().optional(),
   gradeId: z.string().optional(),
-  enrolledAt: z.string().optional(), // ISO string
+  enrolledAt: z.string().optional(),
 });
 
 export async function GET(req: NextRequest) {
   try {
     const schoolAccount = await SchoolAccount.init();
-    if (!schoolAccount) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    if (!schoolAccount) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
     const { searchParams } = new URL(req.url);
     const query = querySchema.parse(Object.fromEntries(searchParams.entries()));
@@ -53,8 +53,19 @@ export async function GET(req: NextRequest) {
         where,
         include: {
           user: true,
+          school: true,
           Class: true,
           Grade: true,
+          subjects: true,
+          application: {
+            include: { previousSchools: true, familyMembers: true, admissionPayment: true },
+          },
+          Exam: true,
+          StudentAttendance: true,
+          Parent: true,
+          Borrow: { include: { book: true } },
+          Transaction: true,
+          Purchase: { include: { resource: true } },
         },
         skip,
         take: perPage,
@@ -65,17 +76,10 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({
       students,
-      pagination: {
-        total,
-        page,
-        perPage,
-        totalPages: Math.ceil(total / perPage),
-      },
+      pagination: { total, page, perPage, totalPages: Math.ceil(total / perPage) },
     });
   } catch (err: any) {
-    if (err instanceof z.ZodError) {
-      return NextResponse.json({ error: err.errors }, { status: 400 });
-    }
+    if (err instanceof z.ZodError) return NextResponse.json({ error: err.errors }, { status: 400 });
     return NextResponse.json({ error: err.message || "Server error" }, { status: 500 });
   }
 }
@@ -83,9 +87,7 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const schoolAccount = await SchoolAccount.init();
-    if (!schoolAccount) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    if (!schoolAccount) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
     const body = await req.json();
     const data = studentSchema.parse(body);
@@ -98,18 +100,17 @@ export async function POST(req: NextRequest) {
         gradeId: data.gradeId,
         enrolledAt: data.enrolledAt ? new Date(data.enrolledAt) : undefined,
       },
-      include: {
-        user: true,
-        Class: true,
-        Grade: true,
-      },
+      include: { user: true, Class: true, Grade: true },
     });
 
     return NextResponse.json(newStudent, { status: 201 });
   } catch (err: any) {
-    if (err instanceof z.ZodError) {
-      return NextResponse.json({ error: err.errors }, { status: 400 });
-    }
+    if (err instanceof z.ZodError) return NextResponse.json({ error: err.errors }, { status: 400 });
     return NextResponse.json({ error: err.message || "Failed to create student" }, { status: 500 });
   }
 }
+
+// ------------------- Design reasoning -------------------
+// Structure: GET (list, paginated), POST (create)
+// Implementation guidance: drop-in API route, integrates with SchoolAccount auth
+// Scalability insight: can extend filters to subjects, exam scores, attendance status

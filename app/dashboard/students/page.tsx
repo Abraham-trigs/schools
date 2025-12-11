@@ -1,9 +1,8 @@
-// app/(dashboard)/students/page.tsx
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { Loader2, Plus } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import AddStudentModal from "./components/AddStudentModal";
 import {
   useStudentStore,
@@ -16,39 +15,67 @@ export default function StudentsPage() {
 
   const {
     students,
-    studentDetail,
     loading,
     errors,
     pagination,
     filters,
     fetchStudents,
+    fetchStudentDetail,
+    fetchStudentAdmission,
     setFilters,
   } = useStudentStore();
 
-  // Debounced fetch
+  // ------------------ Load Students ------------------
   const loadStudents = useCallback(() => {
     fetchStudents({
-      page: pagination.page,
-      perPage: pagination.perPage,
+      page: filters.page,
       search: filters.search,
+      sortBy: filters.sortBy,
+      sortOrder: filters.sortOrder,
+      classId: filters.classId,
+      gradeId: filters.gradeId,
     });
-  }, [fetchStudents, pagination.page, pagination.perPage, filters.search]);
+  }, [
+    fetchStudents,
+    filters.page,
+    filters.search,
+    filters.sortBy,
+    filters.sortOrder,
+    filters.classId,
+    filters.gradeId,
+  ]);
 
-  // Initial fetch
   useEffect(() => {
     loadStudents();
   }, [loadStudents]);
 
-  // Handle search input
+  // ------------------ Search ------------------
   const handleSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value;
     setSearch(value);
-    setFilters({ search: value, page: 1 }); // reset to page 1
+    setFilters({ search: value, page: 1 });
+  };
+
+  // ------------------ Row Click ------------------
+  const handleRowClick = async (student: StudentListItem) => {
+    await fetchStudentDetail(student.id);
+    if (student.admissionId) {
+      await fetchStudentAdmission(student.admissionId);
+    }
+    router.push(`/students/${student.id}`);
+  };
+
+  // ------------------ Sorting ------------------
+  const handleSort = (key: keyof StudentListItem) => {
+    const sortOrder =
+      filters.sortBy === key && filters.sortOrder === "asc" ? "desc" : "asc";
+
+    setFilters({ sortBy: key, sortOrder, page: 1 });
   };
 
   if (loading) {
     return (
-      <div className="flex justify-center items-center h-full py-10">
+      <div className="flex justify-center items-center py-10">
         <Loader2 className="animate-spin h-8 w-8" />
       </div>
     );
@@ -74,7 +101,7 @@ export default function StudentsPage() {
       </div>
 
       {/* Search */}
-      <div className="mb-4">
+      <div>
         <input
           type="text"
           placeholder="Search students..."
@@ -84,75 +111,31 @@ export default function StudentsPage() {
         />
       </div>
 
+      {/* Table */}
       <table className="min-w-full border-collapse border border-gray-200">
         <thead>
           <tr>
-            <th
-              className="border px-4 py-2 cursor-pointer"
-              onClick={() =>
-                setFilters({
-                  sortBy: "name",
-                  sortOrder: filters.sortOrder === "asc" ? "desc" : "asc",
-                })
-              }
-            >
-              Name{" "}
-              {filters.sortBy === "name"
-                ? filters.sortOrder === "asc"
-                  ? "▲"
-                  : "▼"
-                : ""}
-            </th>
-            <th
-              className="border px-4 py-2 cursor-pointer"
-              onClick={() =>
-                setFilters({
-                  sortBy: "email",
-                  sortOrder: filters.sortOrder === "asc" ? "desc" : "asc",
-                })
-              }
-            >
-              Email{" "}
-              {filters.sortBy === "email"
-                ? filters.sortOrder === "asc"
-                  ? "▲"
-                  : "▼"
-                : ""}
-            </th>
-            <th
-              className="border px-4 py-2 cursor-pointer"
-              onClick={() =>
-                setFilters({
-                  sortBy: "className",
-                  sortOrder: filters.sortOrder === "asc" ? "desc" : "asc",
-                })
-              }
-            >
-              Class{" "}
-              {filters.sortBy === "className"
-                ? filters.sortOrder === "asc"
-                  ? "▲"
-                  : "▼"
-                : ""}
-            </th>
-            <th
-              className="border px-4 py-2 cursor-pointer"
-              onClick={() =>
-                setFilters({
-                  sortBy: "gradeName",
-                  sortOrder: filters.sortOrder === "asc" ? "desc" : "asc",
-                })
-              }
-            >
-              Grade{" "}
-              {filters.sortBy === "gradeName"
-                ? filters.sortOrder === "asc"
-                  ? "▲"
-                  : "▼"
-                : ""}
-            </th>
+            {["name", "email", "className", "gradeName"].map((key) => (
+              <th
+                key={key}
+                className="border px-4 py-2 cursor-pointer"
+                onClick={() => handleSort(key as keyof StudentListItem)}
+              >
+                {key === "className"
+                  ? "Class"
+                  : key === "gradeName"
+                  ? "Grade"
+                  : key.charAt(0).toUpperCase() + key.slice(1)}
+                {filters.sortBy === key
+                  ? filters.sortOrder === "asc"
+                    ? " ▲"
+                    : " ▼"
+                  : ""}
+              </th>
+            ))}
           </tr>
         </thead>
+
         <tbody>
           {students.length === 0 && (
             <tr>
@@ -161,21 +144,19 @@ export default function StudentsPage() {
               </td>
             </tr>
           )}
-          {students.map((student: StudentListItem) => {
-            const fullName = student.name || "Unknown";
-            return (
-              <tr
-                key={student.id}
-                className="hover:bg-gray-50 cursor-pointer"
-                onClick={() => router.push(`/students/${student.id}`)}
-              >
-                <td className="border px-4 py-2">{fullName}</td>
-                <td className="border px-4 py-2">{student.email || "-"}</td>
-                <td className="border px-4 py-2">{student.className || "-"}</td>
-                <td className="border px-4 py-2">{student.gradeName || "-"}</td>
-              </tr>
-            );
-          })}
+
+          {students.map((s) => (
+            <tr
+              key={s.id}
+              className="cursor-pointer hover:bg-gray-50"
+              onClick={() => handleRowClick(s)}
+            >
+              <td className="border px-4 py-2">{s.name ?? "Unknown"}</td>
+              <td className="border px-4 py-2">{s.email ?? "-"}</td>
+              <td className="border px-4 py-2">{s.className ?? "-"}</td>
+              <td className="border px-4 py-2">{s.gradeName ?? "-"}</td>
+            </tr>
+          ))}
         </tbody>
       </table>
 

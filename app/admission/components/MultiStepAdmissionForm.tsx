@@ -24,7 +24,7 @@ const STEP_TITLES = [
   "Contact & Emergency",
   "Medical Info",
   "Previous Schools & Family",
-  "Fees & Declaration",
+  "Fees, Declaration & Class",
 ];
 
 interface LabeledInputProps
@@ -141,7 +141,7 @@ export default function MultiStepAdmissionForm() {
           </>
         );
       case 1:
-        // Personal Info + Class & Grade selection
+        // Personal Info
         return (
           <>
             <LabeledInput
@@ -173,68 +173,6 @@ export default function MultiStepAdmissionForm() {
                 </span>
               )}
             </div>
-
-            {/* Class Selection */}
-            <div className="flex flex-col w-full mb-4">
-              <label className="mb-1 text-gray-700 font-medium">
-                Select Class
-              </label>
-              <select
-                {...register("classId")}
-                onChange={(e) => {
-                  setValue("classId", e.target.value);
-                  setValue("gradeId", ""); // reset gradeId when class changes
-                }}
-                className="border rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                <option value="">Select Class</option>
-                {classes.map((cls) => (
-                  <option
-                    key={cls.id}
-                    value={cls.id}
-                    disabled={cls.studentCount >= MAX_CLASS_SIZE}
-                  >
-                    {cls.name}{" "}
-                    {cls.studentCount >= MAX_CLASS_SIZE ? "(Full)" : ""}
-                  </option>
-                ))}
-              </select>
-              {errors.classId && (
-                <span className="text-red-600 text-xs mt-1">
-                  {errors.classId.message}
-                </span>
-              )}
-            </div>
-
-            {/* Grade Selection */}
-            {selectedClass && selectedClass.grades && (
-              <div className="flex flex-col w-full mb-4">
-                <label className="mb-1 text-gray-700 font-medium">
-                  Select Grade
-                </label>
-                <select
-                  {...register("gradeId")} // aligned with store/API
-                  className="border rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                >
-                  <option value="">Select Grade</option>
-                  {selectedClass.grades.map((grade) => (
-                    <option
-                      key={grade.id}
-                      value={grade.id}
-                      disabled={grade.studentCount >= MAX_CLASS_SIZE}
-                    >
-                      {grade.name}{" "}
-                      {grade.studentCount >= MAX_CLASS_SIZE ? "(Full)" : ""}
-                    </option>
-                  ))}
-                </select>
-                {errors.gradeId && (
-                  <span className="text-red-600 text-xs mt-1">
-                    {errors.gradeId.message}
-                  </span>
-                )}
-              </div>
-            )}
           </>
         );
       case 2:
@@ -459,9 +397,10 @@ export default function MultiStepAdmissionForm() {
           </>
         );
       case 7:
-        // Fees & Declaration
+        // Fees & Declaration + Class & Grade Selection
         return (
           <>
+            {/* Fees & Declaration */}
             <label className="flex items-center gap-2">
               <input
                 type="checkbox"
@@ -483,6 +422,68 @@ export default function MultiStepAdmissionForm() {
               label="Signature"
               error={errors.signature?.message as string}
             />
+
+            {/* Class Selection */}
+            <div className="flex flex-col w-full mb-4 mt-4">
+              <label className="mb-1 text-gray-700 font-medium">
+                Select Class
+              </label>
+              <select
+                {...register("classId")}
+                onChange={(e) => {
+                  setValue("classId", e.target.value);
+                  setValue("gradeId", ""); // reset grade when class changes
+                }}
+                className="border rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="">Select Class</option>
+                {classes.map((cls) => (
+                  <option
+                    key={cls.id}
+                    value={cls.id}
+                    disabled={cls.studentCount >= MAX_CLASS_SIZE}
+                  >
+                    {cls.name}{" "}
+                    {cls.studentCount >= MAX_CLASS_SIZE ? "(Full)" : ""}
+                  </option>
+                ))}
+              </select>
+              {errors.classId && (
+                <span className="text-red-600 text-xs mt-1">
+                  {errors.classId.message}
+                </span>
+              )}
+            </div>
+
+            {/* Grade Selection */}
+            {selectedClass && selectedClass.grades && (
+              <div className="flex flex-col w-full mb-4">
+                <label className="mb-1 text-gray-700 font-medium">
+                  Select Grade
+                </label>
+                <select
+                  {...register("gradeId")}
+                  className="border rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="">Select Grade</option>
+                  {selectedClass.grades.map((grade) => (
+                    <option
+                      key={grade.id}
+                      value={grade.id}
+                      disabled={grade.studentCount >= MAX_CLASS_SIZE}
+                    >
+                      {grade.name}{" "}
+                      {grade.studentCount >= MAX_CLASS_SIZE ? "(Full)" : ""}
+                    </option>
+                  ))}
+                </select>
+                {errors.gradeId && (
+                  <span className="text-red-600 text-xs mt-1">
+                    {errors.gradeId.message}
+                  </span>
+                )}
+              </div>
+            )}
           </>
         );
       default:

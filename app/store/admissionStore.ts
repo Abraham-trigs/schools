@@ -1,6 +1,6 @@
 // app/stores/admissionStore.ts
-// Purpose: Centralized Zustand store for multi-step admission flow,
-// strictly aligned with API validation, coercion, and persistence rules.
+// Purpose: Centralized Zustand store for multi-step admission flow
+// Fully aligned with API validation, coercion, optimistic updates, rollback, and persistence rules
 
 "use client";
 
@@ -10,30 +10,10 @@ import axios from "axios";
 import { useAuthStore } from "./useAuthStore.ts";
 
 /* -------------------------------------------------------------------------- */
-/*                               Design reasoning                              */
-/* -------------------------------------------------------------------------- */
-/*
-This store mirrors the API contract exactly to prevent client/server drift.
-Validation is strict but forgiving: users can type freely, while normalization
-and coercion happen only at submit time. The API remains authoritative, and the
-store guarantees it never sends payloads the API would reject.
-*/
-
-/* -------------------------------------------------------------------------- */
-/*                                   Structure                                 */
-/* -------------------------------------------------------------------------- */
-/*
-- Zod schemas that mirror API step schemas
-- Normalization helpers (dates, arrays)
-- Progress calculation identical to API logic
-- Zustand store with full admission lifecycle
-*/
-
-/* -------------------------------------------------------------------------- */
-/*                              Shared Schemas                                 */
+/*                               Shared Schemas                                */
 /* -------------------------------------------------------------------------- */
 
-// EXACT mirror of API FamilyMemberSchema
+// Mirrors API FamilyMemberSchema
 export const FamilyMemberSchema = z.object({
   relation: z.string(),
   name: z.string(),
@@ -46,19 +26,18 @@ export const FamilyMemberSchema = z.object({
   religion: z.string().optional(),
   isAlive: z.boolean().optional(),
 });
-
 export type FamilyMember = z.infer<typeof FamilyMemberSchema>;
 
-// EXACT mirror of API PreviousSchoolSchema
+// Mirrors API PreviousSchoolSchema
 export const PreviousSchoolSchema = z.object({
   name: z.string(),
   location: z.string(),
   startDate: z.coerce.date(),
   endDate: z.coerce.date(),
 });
-
 export type PreviousSchool = z.infer<typeof PreviousSchoolSchema>;
 
+// Grade type for class selection
 export type GradeOption = {
   id: string;
   name: string;
@@ -67,7 +46,7 @@ export type GradeOption = {
 };
 
 /* -------------------------------------------------------------------------- */
-/*                              Step definitions                               */
+/*                               Step Definitions                              */
 /* -------------------------------------------------------------------------- */
 
 const STEP_FIELDS: string[][] = [
@@ -82,14 +61,8 @@ const STEP_FIELDS: string[][] = [
 ];
 
 /* -------------------------------------------------------------------------- */
-/*                         Admission Form Schema                                */
+/*                         Admission Form Schema                               */
 /* -------------------------------------------------------------------------- */
-/*
-NOTE:
-- Types match API
-- Dates stored as string | Date locally, coerced on submit
-- Step 6 is strictly typed (NO z.any)
-*/
 
 export const admissionFormSchema = z.object({
   applicationId: z.string().optional(),
@@ -135,7 +108,7 @@ export const admissionFormSchema = z.object({
   bloodType: z.string().optional(),
   specialDisability: z.string().optional(),
 
-  // Step 6 (STRICT)
+  // Step 6
   previousSchools: z.array(PreviousSchoolSchema).optional(),
   familyMembers: z.array(FamilyMemberSchema).optional(),
 
@@ -146,11 +119,10 @@ export const admissionFormSchema = z.object({
   classId: z.string().optional(),
   gradeId: z.string().optional(),
 });
-
 export type AdmissionFormData = z.infer<typeof admissionFormSchema>;
 
 /* -------------------------------------------------------------------------- */
-/*                              Store Interface                                 */
+/*                               Store Interface                               */
 /* -------------------------------------------------------------------------- */
 
 interface AdmissionStore {
@@ -167,22 +139,21 @@ interface AdmissionStore {
   deleteAdmission: (applicationId: string) => Promise<boolean>;
   loadStudentData: (admission: any) => void;
 
-  addFamilyMember: (member: FamilyMember) => void;
-  removeFamilyMember: (idx: number) => void;
-  addPreviousSchool: (school: PreviousSchool) => void;
-  removePreviousSchool: (idx: number) => void;
+  addFamilyMember: (member: FamilyMember) => Promise<void>;
+  removeFamilyMember: (idx: number) => Promise<void>;
+  addPreviousSchool: (school: PreviousSchool) => Promise<void>;
+  removePreviousSchool: (idx: number) => Promise<void>;
 
   setClass: (classId: string, grades: GradeOption[]) => void;
   selectGrade: (gradeId?: string, grades?: GradeOption[]) => void;
 }
 
 /* -------------------------------------------------------------------------- */
-/*                                  Helpers                                    */
+/*                                  Helpers                                     */
 /* -------------------------------------------------------------------------- */
 
 function calculateProgress(data: any) {
   let completedSteps = 0;
-
   STEP_FIELDS.forEach((fields) => {
     const ok = fields.every((f) => {
       const v = data[f];
@@ -192,13 +163,11 @@ function calculateProgress(data: any) {
     });
     if (ok) completedSteps++;
   });
-
   return Math.round((completedSteps / STEP_FIELDS.length) * 100);
 }
 
 /**
  * Normalize payload BEFORE sending to API.
- * Ensures API-compatible shapes and coercions.
  */
 function normalizePayload(step: number, formData: AdmissionFormData) {
   const payload: any = {};
@@ -222,7 +191,7 @@ function normalizePayload(step: number, formData: AdmissionFormData) {
 }
 
 /* -------------------------------------------------------------------------- */
-/*                            Store Implementation                              */
+/*                            Store Implementation                             */
 /* -------------------------------------------------------------------------- */
 
 export const useAdmissionStore = create<AdmissionStore>((set, get) => ({
@@ -249,45 +218,23 @@ export const useAdmissionStore = create<AdmissionStore>((set, get) => ({
       const payload = normalizePayload(step, get().formData);
 
       if (step === 0) {
-        const res = await axios.post(
-          "/api/admissions",
-          { ...payload, step },
-          { headers: { "X-School-ID": schoolId } }
-        );
-
+        const res = await axios.post("/api/admissions", { ...payload, step }, { headers: { "X-School-ID": schoolId } });
         set((state) => ({
-          formData: {
-            ...state.formData,
-            applicationId: res.data.admission.id,
-            studentId: res.data.admission.studentId,
-          },
+          formData: { ...state.formData, applicationId: res.data.admission.id, studentId: res.data.admission.studentId },
           userCreated: true,
         }));
       } else {
         const appId = get().formData.applicationId;
         if (!appId) throw new Error("Missing applicationId");
-
-        await axios.patch(
-          `/api/admissions/${appId}`,
-          { ...payload, step },
-          { headers: { "X-School-ID": schoolId } }
-        );
+        await axios.patch(`/api/admission/${appId}`, { ...payload, step }, { headers: { "X-School-ID": schoolId } });
       }
 
       set((state) => ({
-        formData: {
-          ...state.formData,
-          progress: calculateProgress(state.formData),
-        },
+        formData: { ...state.formData, progress: calculateProgress(state.formData) },
       }));
-
       return true;
     } catch (err: any) {
-      set({
-        errors: {
-          completeStep: [err?.response?.data?.error || err.message],
-        },
-      });
+      set({ errors: { completeStep: [err?.response?.data?.error || err.message] } });
       return false;
     } finally {
       set({ loading: false });
@@ -299,11 +246,7 @@ export const useAdmissionStore = create<AdmissionStore>((set, get) => ({
     try {
       const schoolId = useAuthStore.getState().user?.school?.id;
       if (!schoolId) throw new Error("Unauthorized");
-
-      const res = await axios.get(`/api/admissions/${applicationId}`, {
-        headers: { "X-School-ID": schoolId },
-      });
-
+      const res = await axios.get(`/api/admission/${applicationId}`, { headers: { "X-School-ID": schoolId } });
       get().loadStudentData(res.data.application || res.data);
     } catch (err: any) {
       set({ errors: { fetchAdmission: [err.message] } });
@@ -317,11 +260,7 @@ export const useAdmissionStore = create<AdmissionStore>((set, get) => ({
     try {
       const schoolId = useAuthStore.getState().user?.school?.id;
       if (!schoolId) throw new Error("Unauthorized");
-
-      await axios.delete(`/api/admissions/${applicationId}`, {
-        headers: { "X-School-ID": schoolId },
-      });
-
+      await axios.delete(`/api/admission/${applicationId}`, { headers: { "X-School-ID": schoolId } });
       set({ formData: admissionFormSchema.parse({}), userCreated: false });
       return true;
     } catch (err: any) {
@@ -339,38 +278,110 @@ export const useAdmissionStore = create<AdmissionStore>((set, get) => ({
     set({ formData: data, userCreated: true });
   },
 
-  addFamilyMember: (member) =>
+  /* -------------------- Nested arrays with optimistic updates -------------------- */
+  addFamilyMember: async (member) => {
+    const prev = [...(get().formData.familyMembers || [])];
     set((state) => {
-      const updated = [...(state.formData.familyMembers || []), member];
+      const formData = { ...state.formData, familyMembers: [...prev, member] };
+      formData.progress = calculateProgress(formData);
+      return { formData };
+    });
+
+    try {
+      const appId = get().formData.applicationId;
+      const schoolId = useAuthStore.getState().user?.school?.id;
+      if (!appId || !schoolId) throw new Error("Unauthorized / Missing ID");
+
+      await axios.patch(`/api/admission/${appId}`, { step: 6, familyMembers: [...prev, member] }, { headers: { "X-School-ID": schoolId } });
+    } catch (err: any) {
+      set((state) => {
+        const formData = { ...state.formData, familyMembers: prev };
+        formData.progress = calculateProgress(formData);
+        return { formData };
+      });
+      set({ errors: { addFamilyMember: [err?.response?.data?.error || err.message] } });
+    }
+  },
+
+  removeFamilyMember: async (idx) => {
+    const prev = [...(get().formData.familyMembers || [])];
+    const updated = prev.filter((_, i) => i !== idx);
+
+    set((state) => {
       const formData = { ...state.formData, familyMembers: updated };
       formData.progress = calculateProgress(formData);
       return { formData };
-    }),
+    });
 
-  removeFamilyMember: (idx) =>
-    set((state) => {
-      const updated = state.formData.familyMembers?.filter((_, i) => i !== idx) || [];
-      const formData = { ...state.formData, familyMembers: updated };
-      formData.progress = calculateProgress(formData);
-      return { formData };
-    }),
+    try {
+      const appId = get().formData.applicationId;
+      const schoolId = useAuthStore.getState().user?.school?.id;
+      if (!appId || !schoolId) throw new Error("Unauthorized / Missing ID");
 
-  addPreviousSchool: (school) =>
+      await axios.patch(`/api/admission/${appId}`, { step: 6, familyMembers: updated }, { headers: { "X-School-ID": schoolId } });
+    } catch (err: any) {
+      set((state) => {
+        const formData = { ...state.formData, familyMembers: prev };
+        formData.progress = calculateProgress(formData);
+        return { formData };
+      });
+      set({ errors: { removeFamilyMember: [err?.response?.data?.error || err.message] } });
+    }
+  },
+
+  addPreviousSchool: async (school) => {
+    const prev = [...(get().formData.previousSchools || [])];
+    const updated = [...prev, school];
+
     set((state) => {
-      const updated = [...(state.formData.previousSchools || []), school];
       const formData = { ...state.formData, previousSchools: updated };
       formData.progress = calculateProgress(formData);
       return { formData };
-    }),
+    });
 
-  removePreviousSchool: (idx) =>
+    try {
+      const appId = get().formData.applicationId;
+      const schoolId = useAuthStore.getState().user?.school?.id;
+      if (!appId || !schoolId) throw new Error("Unauthorized / Missing ID");
+
+      await axios.patch(`/api/admission/${appId}`, { step: 6, previousSchools: updated }, { headers: { "X-School-ID": schoolId } });
+    } catch (err: any) {
+      set((state) => {
+        const formData = { ...state.formData, previousSchools: prev };
+        formData.progress = calculateProgress(formData);
+        return { formData };
+      });
+      set({ errors: { addPreviousSchool: [err?.response?.data?.error || err.message] } });
+    }
+  },
+
+  removePreviousSchool: async (idx) => {
+    const prev = [...(get().formData.previousSchools || [])];
+    const updated = prev.filter((_, i) => i !== idx);
+
     set((state) => {
-      const updated = state.formData.previousSchools?.filter((_, i) => i !== idx) || [];
       const formData = { ...state.formData, previousSchools: updated };
       formData.progress = calculateProgress(formData);
       return { formData };
-    }),
+    });
 
+    try {
+      const appId = get().formData.applicationId;
+      const schoolId = useAuthStore.getState().user?.school?.id;
+      if (!appId || !schoolId) throw new Error("Unauthorized / Missing ID");
+
+      await axios.patch(`/api/admission/${appId}`, { step: 6, previousSchools: updated }, { headers: { "X-School-ID": schoolId } });
+    } catch (err: any) {
+      set((state) => {
+        const formData = { ...state.formData, previousSchools: prev };
+        formData.progress = calculateProgress(formData);
+        return { formData };
+      });
+      set({ errors: { removePreviousSchool: [err?.response?.data?.error || err.message] } });
+    }
+  },
+
+  /* -------------------- Class & grade selection -------------------- */
   setClass: (classId, grades) => {
     const grade = grades.find((g) => g.enrolled < g.capacity);
     set((state) => {
@@ -399,10 +410,10 @@ export const useAdmissionStore = create<AdmissionStore>((set, get) => ({
 }));
 
 /* -------------------------------------------------------------------------- */
-/*                              Scalability insight                             */
+/*                         Scalability Insight                                */
 /* -------------------------------------------------------------------------- */
 /*
-If new steps are added, only STEP_FIELDS and the API schema need updating.
-The store will automatically enforce alignment and progress calculation
+Adding new steps only requires updating STEP_FIELDS and backend schemas.
+The store automatically calculates progress, validates, and syncs data
 without rewriting core logic.
 */

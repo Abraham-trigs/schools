@@ -1,43 +1,21 @@
-// app/stores/admissionStore.ts
-// Purpose: Centralized Zustand store for multi-step admission flow
-// Fully aligned with API validation, coercion, optimistic updates, rollback, and persistence rules
-
 "use client";
 
 import { create } from "zustand";
 import { z } from "zod";
 import axios from "axios";
 import { useAuthStore } from "./useAuthStore.ts";
+import { useClassesStore } from "./useClassesStore.ts";
+import {
+  StepSchemas,
+  FamilyMemberSchema,
+  PreviousSchoolSchema,
+  calculateProgress,
+  updateAdmission,
+} from "@/lib/helpers/admission.ts";
 
-/* -------------------------------------------------------------------------- */
-/*                               Shared Schemas                                */
-/* -------------------------------------------------------------------------- */
-
-// Mirrors API FamilyMemberSchema
-export const FamilyMemberSchema = z.object({
-  relation: z.string(),
-  name: z.string(),
-  postalAddress: z.string(),
-  residentialAddress: z.string(),
-  phone: z.string().optional(),
-  email: z.string().email().optional(),
-  occupation: z.string().optional(),
-  workplace: z.string().optional(),
-  religion: z.string().optional(),
-  isAlive: z.boolean().optional(),
-});
 export type FamilyMember = z.infer<typeof FamilyMemberSchema>;
-
-// Mirrors API PreviousSchoolSchema
-export const PreviousSchoolSchema = z.object({
-  name: z.string(),
-  location: z.string(),
-  startDate: z.coerce.date(),
-  endDate: z.coerce.date(),
-});
 export type PreviousSchool = z.infer<typeof PreviousSchoolSchema>;
 
-// Grade type for class selection
 export type GradeOption = {
   id: string;
   name: string;
@@ -45,43 +23,21 @@ export type GradeOption = {
   enrolled: number;
 };
 
-/* -------------------------------------------------------------------------- */
-/*                               Step Definitions                              */
-/* -------------------------------------------------------------------------- */
-
-const STEP_FIELDS: string[][] = [
-  ["surname", "firstName", "otherNames", "email", "password"],
-  ["dateOfBirth", "nationality", "sex"],
-  ["languages", "mothersTongue", "religion", "denomination", "hometown", "region"],
-  ["profilePicture", "wardLivesWith", "numberOfSiblings", "siblingsOlder", "siblingsYounger"],
-  ["postalAddress", "residentialAddress", "wardMobile", "emergencyContact", "emergencyMedicalContact"],
-  ["medicalSummary", "bloodType", "specialDisability"],
-  ["previousSchools", "familyMembers"],
-  ["feesAcknowledged", "declarationSigned", "signature", "classId", "gradeId"],
-];
-
-/* -------------------------------------------------------------------------- */
-/*                         Admission Form Schema                               */
-/* -------------------------------------------------------------------------- */
-
 export const admissionFormSchema = z.object({
   applicationId: z.string().optional(),
   studentId: z.string().optional(),
   progress: z.number().default(0),
 
-  // Step 0
   surname: z.string().optional(),
   firstName: z.string().optional(),
   otherNames: z.string().optional(),
   email: z.string().email().optional(),
   password: z.string().optional(),
 
-  // Step 1
   dateOfBirth: z.union([z.string(), z.date()]).optional(),
   nationality: z.string().optional(),
   sex: z.string().optional(),
 
-  // Step 2
   languages: z.array(z.string()).optional(),
   mothersTongue: z.string().optional(),
   religion: z.string().optional(),
@@ -89,41 +45,36 @@ export const admissionFormSchema = z.object({
   hometown: z.string().optional(),
   region: z.string().optional(),
 
-  // Step 3
   profilePicture: z.string().optional(),
   wardLivesWith: z.string().optional(),
   numberOfSiblings: z.number().optional(),
   siblingsOlder: z.number().optional(),
   siblingsYounger: z.number().optional(),
 
-  // Step 4
   postalAddress: z.string().optional(),
   residentialAddress: z.string().optional(),
   wardMobile: z.string().optional(),
   emergencyContact: z.string().optional(),
   emergencyMedicalContact: z.string().optional(),
 
-  // Step 5
   medicalSummary: z.string().optional(),
   bloodType: z.string().optional(),
   specialDisability: z.string().optional(),
 
-  // Step 6
   previousSchools: z.array(PreviousSchoolSchema).optional(),
   familyMembers: z.array(FamilyMemberSchema).optional(),
 
-  // Step 7
   feesAcknowledged: z.boolean().optional(),
   declarationSigned: z.boolean().optional(),
   signature: z.string().optional(),
-  classId: z.string().optional(),
-  gradeId: z.string().optional(),
-});
-export type AdmissionFormData = z.infer<typeof admissionFormSchema>;
 
-/* -------------------------------------------------------------------------- */
-/*                               Store Interface                               */
-/* -------------------------------------------------------------------------- */
+  classId: z.string().optional(),
+  className: z.string().optional(),
+  gradeId: z.string().optional(),
+  gradeName: z.string().optional(),
+});
+
+export type AdmissionFormData = z.infer<typeof admissionFormSchema>;
 
 interface AdmissionStore {
   formData: AdmissionFormData;
@@ -139,61 +90,44 @@ interface AdmissionStore {
   deleteAdmission: (applicationId: string) => Promise<boolean>;
   loadStudentData: (admission: any) => void;
 
-  addFamilyMember: (member: FamilyMember) => Promise<void>;
-  removeFamilyMember: (idx: number) => Promise<void>;
-  addPreviousSchool: (school: PreviousSchool) => Promise<void>;
-  removePreviousSchool: (idx: number) => Promise<void>;
+  optimisticUpdate: <T>(
+    field: keyof AdmissionFormData,
+    updateFn: (prev: T) => T,
+    apiCall?: () => Promise<void>
+  ) => void;
+
+  addFamilyMember: (member: FamilyMember) => void;
+  removeFamilyMember: (idx: number) => void;
+  addPreviousSchool: (school: PreviousSchool) => void;
+  removePreviousSchool: (idx: number) => void;
 
   setClass: (classId: string, grades: GradeOption[]) => void;
   selectGrade: (gradeId?: string, grades?: GradeOption[]) => void;
 }
 
-/* -------------------------------------------------------------------------- */
-/*                                  Helpers                                     */
-/* -------------------------------------------------------------------------- */
-
-function calculateProgress(data: any) {
-  let completedSteps = 0;
-  STEP_FIELDS.forEach((fields) => {
-    const ok = fields.every((f) => {
-      const v = data[f];
-      if (Array.isArray(v)) return v.length > 0;
-      if (typeof v === "boolean") return v === true;
-      return v !== undefined && v !== null && v !== "";
-    });
-    if (ok) completedSteps++;
+// ---------------------- Normalize Step Data ----------------------
+function normalizeStepData(step: number, data: AdmissionFormData) {
+  const stepData: any = {};
+  Object.keys(StepSchemas[step].shape).forEach((key) => {
+    stepData[key] = data[key as keyof AdmissionFormData];
   });
-  return Math.round((completedSteps / STEP_FIELDS.length) * 100);
-}
 
-/**
- * Normalize payload BEFORE sending to API.
- */
-function normalizePayload(step: number, formData: AdmissionFormData) {
-  const payload: any = {};
-  STEP_FIELDS[step].forEach((f) => (payload[f] = formData[f]));
-
-  if (step === 1 && payload.dateOfBirth) {
-    payload.dateOfBirth = new Date(payload.dateOfBirth);
+  if (step === 1 && stepData.dateOfBirth) {
+    stepData.dateOfBirth = new Date(stepData.dateOfBirth);
   }
 
-  if (step === 6) {
-    if (payload.previousSchools) {
-      payload.previousSchools = payload.previousSchools.map((s: any) => ({
-        ...s,
-        startDate: new Date(s.startDate),
-        endDate: new Date(s.endDate),
-      }));
-    }
+  if (step === 6 && stepData.previousSchools) {
+    stepData.previousSchools = stepData.previousSchools.map((s: any) => ({
+      ...s,
+      startDate: new Date(s.startDate),
+      endDate: new Date(s.endDate),
+    }));
   }
 
-  return payload;
+  return stepData;
 }
 
-/* -------------------------------------------------------------------------- */
-/*                            Store Implementation                             */
-/* -------------------------------------------------------------------------- */
-
+// ---------------------- Admission Store ----------------------
 export const useAdmissionStore = create<AdmissionStore>((set, get) => ({
   formData: admissionFormSchema.parse({}),
   loading: false,
@@ -209,13 +143,36 @@ export const useAdmissionStore = create<AdmissionStore>((set, get) => ({
 
   setErrors: (errors) => set({ errors }),
 
+  // ---------------------- Universal Optimistic Update ----------------------
+  optimisticUpdate: (field, updateFn, apiCall) => {
+    const prev = get().formData[field];
+
+    // Optimistic update
+    set((state) => {
+      const updated = updateFn(prev);
+      return {
+        formData: { ...state.formData, [field]: updated, progress: calculateProgress({ ...state.formData, [field]: updated }) },
+      };
+    });
+
+    // Rollback if API fails
+    if (apiCall) {
+      apiCall().catch((err: any) => {
+        set((state) => ({
+          formData: { ...state.formData, [field]: prev, progress: calculateProgress({ ...state.formData, [field]: prev }) },
+          errors: { [field]: [err?.response?.data?.error || err.message] },
+        }));
+      });
+    }
+  },
+
   completeStep: async (step) => {
     set({ loading: true, errors: {} });
     try {
       const schoolId = useAuthStore.getState().user?.school?.id;
       if (!schoolId) throw new Error("Unauthorized");
 
-      const payload = normalizePayload(step, get().formData);
+      const payload = normalizeStepData(step, get().formData);
 
       if (step === 0) {
         const res = await axios.post("/api/admissions", { ...payload, step }, { headers: { "X-School-ID": schoolId } });
@@ -226,12 +183,10 @@ export const useAdmissionStore = create<AdmissionStore>((set, get) => ({
       } else {
         const appId = get().formData.applicationId;
         if (!appId) throw new Error("Missing applicationId");
-        await axios.patch(`/api/admission/${appId}`, { ...payload, step }, { headers: { "X-School-ID": schoolId } });
+        await updateAdmission(axios, appId, step, payload);
       }
 
-      set((state) => ({
-        formData: { ...state.formData, progress: calculateProgress(state.formData) },
-      }));
+      set((state) => ({ formData: { ...state.formData, progress: calculateProgress(state.formData) } }));
       return true;
     } catch (err: any) {
       set({ errors: { completeStep: [err?.response?.data?.error || err.message] } });
@@ -246,8 +201,17 @@ export const useAdmissionStore = create<AdmissionStore>((set, get) => ({
     try {
       const schoolId = useAuthStore.getState().user?.school?.id;
       if (!schoolId) throw new Error("Unauthorized");
+
       const res = await axios.get(`/api/admission/${applicationId}`, { headers: { "X-School-ID": schoolId } });
-      get().loadStudentData(res.data.application || res.data);
+      const data = res.data.application || res.data;
+
+      const classesStore = useClassesStore.getState();
+      const selectedClass = classesStore.classes.find(c => c.id === data.classId);
+      const selectedGrade = selectedClass?.grades?.find(g => g.id === data.gradeId);
+      data.className = selectedClass?.name;
+      data.gradeName = selectedGrade?.name;
+
+      get().loadStudentData(data);
     } catch (err: any) {
       set({ errors: { fetchAdmission: [err.message] } });
     } finally {
@@ -260,11 +224,12 @@ export const useAdmissionStore = create<AdmissionStore>((set, get) => ({
     try {
       const schoolId = useAuthStore.getState().user?.school?.id;
       if (!schoolId) throw new Error("Unauthorized");
+
       await axios.delete(`/api/admission/${applicationId}`, { headers: { "X-School-ID": schoolId } });
       set({ formData: admissionFormSchema.parse({}), userCreated: false });
       return true;
     } catch (err: any) {
-      set({ errors: { deleteAdmission: [err.message] } });
+      set({ errors: { deleteAdmission: [err?.response?.data?.error || err.message] } });
       return false;
     } finally {
       set({ loading: false });
@@ -273,147 +238,101 @@ export const useAdmissionStore = create<AdmissionStore>((set, get) => ({
 
   loadStudentData: (admission) => {
     if (!admission) return;
-    const data = { ...admission };
-    data.progress = calculateProgress(data);
-    set({ formData: data, userCreated: true });
-  },
 
-  /* -------------------- Nested arrays with optimistic updates -------------------- */
-  addFamilyMember: async (member) => {
-    const prev = [...(get().formData.familyMembers || [])];
-    set((state) => {
-      const formData = { ...state.formData, familyMembers: [...prev, member] };
-      formData.progress = calculateProgress(formData);
-      return { formData };
-    });
+    const classesStore = useClassesStore.getState();
+    let className: string | undefined;
+    let gradeName: string | undefined;
 
-    try {
-      const appId = get().formData.applicationId;
-      const schoolId = useAuthStore.getState().user?.school?.id;
-      if (!appId || !schoolId) throw new Error("Unauthorized / Missing ID");
+    if (admission.classId) {
+      const selectedClass = classesStore.classes.find(c => c.id === admission.classId);
+      className = selectedClass?.name;
 
-      await axios.patch(`/api/admission/${appId}`, { step: 6, familyMembers: [...prev, member] }, { headers: { "X-School-ID": schoolId } });
-    } catch (err: any) {
-      set((state) => {
-        const formData = { ...state.formData, familyMembers: prev };
-        formData.progress = calculateProgress(formData);
-        return { formData };
-      });
-      set({ errors: { addFamilyMember: [err?.response?.data?.error || err.message] } });
+      const gradeList = selectedClass?.grades || [];
+      if (admission.gradeId) {
+        const selectedGrade = gradeList.find(g => g.id === admission.gradeId);
+        gradeName = selectedGrade?.name;
+      } else {
+        const firstAvailableGrade = gradeList.find(g => g.enrolled < g.capacity);
+        gradeName = firstAvailableGrade?.name;
+      }
     }
+
+    set({ formData: { ...admission, className, gradeName, progress: calculateProgress(admission) }, userCreated: true });
   },
 
-  removeFamilyMember: async (idx) => {
-    const prev = [...(get().formData.familyMembers || [])];
-    const updated = prev.filter((_, i) => i !== idx);
-
-    set((state) => {
-      const formData = { ...state.formData, familyMembers: updated };
-      formData.progress = calculateProgress(formData);
-      return { formData };
-    });
-
-    try {
-      const appId = get().formData.applicationId;
-      const schoolId = useAuthStore.getState().user?.school?.id;
-      if (!appId || !schoolId) throw new Error("Unauthorized / Missing ID");
-
-      await axios.patch(`/api/admission/${appId}`, { step: 6, familyMembers: updated }, { headers: { "X-School-ID": schoolId } });
-    } catch (err: any) {
-      set((state) => {
-        const formData = { ...state.formData, familyMembers: prev };
-        formData.progress = calculateProgress(formData);
-        return { formData };
-      });
-      set({ errors: { removeFamilyMember: [err?.response?.data?.error || err.message] } });
-    }
+  addFamilyMember: (member) => {
+    get().optimisticUpdate(
+      "familyMembers",
+      (prev = []) => [...prev, member],
+      () => updateAdmission(axios, get().formData.applicationId!, 6, { familyMembers: [...(get().formData.familyMembers || []), member] })
+    );
   },
 
-  addPreviousSchool: async (school) => {
-    const prev = [...(get().formData.previousSchools || [])];
-    const updated = [...prev, school];
-
-    set((state) => {
-      const formData = { ...state.formData, previousSchools: updated };
-      formData.progress = calculateProgress(formData);
-      return { formData };
-    });
-
-    try {
-      const appId = get().formData.applicationId;
-      const schoolId = useAuthStore.getState().user?.school?.id;
-      if (!appId || !schoolId) throw new Error("Unauthorized / Missing ID");
-
-      await axios.patch(`/api/admission/${appId}`, { step: 6, previousSchools: updated }, { headers: { "X-School-ID": schoolId } });
-    } catch (err: any) {
-      set((state) => {
-        const formData = { ...state.formData, previousSchools: prev };
-        formData.progress = calculateProgress(formData);
-        return { formData };
-      });
-      set({ errors: { addPreviousSchool: [err?.response?.data?.error || err.message] } });
-    }
+  removeFamilyMember: (idx) => {
+    get().optimisticUpdate(
+      "familyMembers",
+      (prev = []) => prev.filter((_, i) => i !== idx),
+      () => updateAdmission(axios, get().formData.applicationId!, 6, { familyMembers: [...(get().formData.familyMembers || [])].filter((_, i) => i !== idx) })
+    );
   },
 
-  removePreviousSchool: async (idx) => {
-    const prev = [...(get().formData.previousSchools || [])];
-    const updated = prev.filter((_, i) => i !== idx);
-
-    set((state) => {
-      const formData = { ...state.formData, previousSchools: updated };
-      formData.progress = calculateProgress(formData);
-      return { formData };
-    });
-
-    try {
-      const appId = get().formData.applicationId;
-      const schoolId = useAuthStore.getState().user?.school?.id;
-      if (!appId || !schoolId) throw new Error("Unauthorized / Missing ID");
-
-      await axios.patch(`/api/admission/${appId}`, { step: 6, previousSchools: updated }, { headers: { "X-School-ID": schoolId } });
-    } catch (err: any) {
-      set((state) => {
-        const formData = { ...state.formData, previousSchools: prev };
-        formData.progress = calculateProgress(formData);
-        return { formData };
-      });
-      set({ errors: { removePreviousSchool: [err?.response?.data?.error || err.message] } });
-    }
+  addPreviousSchool: (school) => {
+    get().optimisticUpdate(
+      "previousSchools",
+      (prev = []) => [...prev, school],
+      () => updateAdmission(axios, get().formData.applicationId!, 6, { previousSchools: [...(get().formData.previousSchools || []), school] })
+    );
   },
 
-  /* -------------------- Class & grade selection -------------------- */
+  removePreviousSchool: (idx) => {
+    get().optimisticUpdate(
+      "previousSchools",
+      (prev = []) => prev.filter((_, i) => i !== idx),
+      () => updateAdmission(axios, get().formData.applicationId!, 6, { previousSchools: [...(get().formData.previousSchools || [])].filter((_, i) => i !== idx) })
+    );
+  },
+
   setClass: (classId, grades) => {
-    const grade = grades.find((g) => g.enrolled < g.capacity);
-    set((state) => {
-      const formData = { ...state.formData, classId, gradeId: grade?.id };
-      formData.progress = calculateProgress(formData);
-      return { formData };
-    });
+    const classesStore = useClassesStore.getState();
+    const selectedClass = classesStore.classes.find(c => c.id === classId);
+    if (!selectedClass) return;
+
+    const gradeList = grades || selectedClass.grades || [];
+    const grade = gradeList.find(g => g.enrolled < g.capacity);
+
+    set((state) => ({
+      formData: {
+        ...state.formData,
+        classId,
+        className: selectedClass.name,
+        gradeId: grade?.id,
+        gradeName: grade?.name,
+        progress: calculateProgress({
+          ...state.formData,
+          classId,
+          className: selectedClass.name,
+          gradeId: grade?.id,
+          gradeName: grade?.name,
+        }),
+      },
+    }));
   },
 
   selectGrade: (gradeId, grades) => {
-    if (gradeId) {
-      set((state) => {
-        const formData = { ...state.formData, gradeId };
-        formData.progress = calculateProgress(formData);
-        return { formData };
-      });
-    } else if (grades) {
-      const grade = grades.find((g) => g.enrolled < g.capacity);
-      set((state) => {
-        const formData = { ...state.formData, gradeId: grade?.id };
-        formData.progress = calculateProgress(formData);
-        return { formData };
-      });
-    }
+    const classesStore = useClassesStore.getState();
+    const gradeList = grades || classesStore.classes.flatMap(c => c.grades);
+    if (!gradeList || gradeList.length === 0) return;
+
+    const grade = gradeId ? gradeList.find(g => g.id === gradeId) : gradeList.find((g) => g.enrolled < g.capacity);
+    if (!grade) return;
+
+    set((state) => ({
+      formData: {
+        ...state.formData,
+        gradeId: grade.id,
+        gradeName: grade.name,
+        progress: calculateProgress({ ...state.formData, gradeId: grade.id, gradeName: grade.name }),
+      },
+    }));
   },
 }));
-
-/* -------------------------------------------------------------------------- */
-/*                         Scalability Insight                                */
-/* -------------------------------------------------------------------------- */
-/*
-Adding new steps only requires updating STEP_FIELDS and backend schemas.
-The store automatically calculates progress, validates, and syncs data
-without rewriting core logic.
-*/

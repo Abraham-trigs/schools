@@ -5,7 +5,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { SchoolAccount } from "@/lib/schoolAccount.ts";
+import { SchoolAccount } from "@/lib/schoolAccount";
 import { z } from "zod";
 
 // ------------------ Authorization ------------------
@@ -15,8 +15,12 @@ async function authorize(req: NextRequest) {
   return schoolAccount;
 }
 
+
 // ------------------ GET /api/students/:id ------------------
-export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(
+  req: NextRequest,
+  { params }: { params: { id: string } }
+) {
   try {
     const schoolAccount = await authorize(req);
     if (!schoolAccount)
@@ -44,7 +48,10 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
 
     return NextResponse.json({ student });
   } catch (err: any) {
-    return NextResponse.json({ error: err.message || "Server error" }, { status: 500 });
+    return NextResponse.json(
+      { error: err.message || "Server error" },
+      { status: 500 }
+    );
   }
 }
 
@@ -54,7 +61,10 @@ const updateStudentSchema = z.object({
   gradeId: z.string().uuid().nullable().optional(),
 });
 
-export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
+export async function PUT(
+  req: NextRequest,
+  { params }: { params: { id: string } }
+) {
   try {
     const schoolAccount = await authorize(req);
     if (!schoolAccount)
@@ -63,8 +73,18 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     const raw = await req.json();
     const parsed = updateStudentSchema.safeParse(raw);
 
-    if (!parsed.success)
-      return NextResponse.json({ error: parsed.error.format() }, { status: 400 });
+    if (!parsed.success) {
+      // Flatten Zod errors to a string for safe React rendering
+      const flattenErrors = Object.values(parsed.error.flatten().fieldErrors)
+        .flat()
+        .filter(Boolean)
+        .join(", ");
+
+      return NextResponse.json(
+        { error: flattenErrors || "Invalid input" },
+        { status: 400 }
+      );
+    }
 
     const existing = await prisma.student.findFirst({
       where: { id: params.id, schoolId: schoolAccount.schoolId },
@@ -91,29 +111,9 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
 
     return NextResponse.json({ student: updated });
   } catch (err: any) {
-    return NextResponse.json({ error: err.message || "Update failed" }, { status: 400 });
-  }
-}
-
-// ------------------ DELETE /api/students/:id ------------------
-export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
-  try {
-    const schoolAccount = await authorize(req);
-    if (!schoolAccount)
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
-    const deleted = await prisma.student.deleteMany({
-      where: { id: params.id, schoolId: schoolAccount.schoolId },
-    });
-
-    if (deleted.count === 0)
-      return NextResponse.json(
-        { error: "Student not found or not permitted" },
-        { status: 404 }
-      );
-
-    return NextResponse.json({ success: true });
-  } catch (err: any) {
-    return NextResponse.json({ error: err.message || "Delete failed" }, { status: 400 });
+    return NextResponse.json(
+      { error: err.message || "Update failed" },
+      { status: 400 }
+    );
   }
 }

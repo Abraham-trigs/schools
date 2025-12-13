@@ -40,7 +40,6 @@ interface ClassesStore {
   fetchClassById: (id: string) => Promise<void>;
   fetchStudents: (classId: string) => Promise<void>;
   fetchAttendance: (classId: string, date?: string) => Promise<void>;
-  fetchGrades: (classId: string) => Promise<void>;
 
   // ------------------ Mutations ------------------
   createClass: (name: string) => Promise<{ success: boolean; data?: Class; error?: string }>;
@@ -145,16 +144,6 @@ export const useClassesStore = create<ClassesStore>((set, get) => ({
     }
   },
 
-  fetchGrades: async (classId: string) => {
-    set({ loading: true });
-    try {
-      const res = await axios.get(`/api/classes/${classId}/grades`);
-      set({ grades: res.data || [], loading: false });
-    } catch (err: any) {
-      set({ error: err.response?.data?.error || err.message, loading: false });
-    }
-  },
-
   // ------------------ Mutations ------------------
   createClass: async (name: string) => {
     set({ loading: true });
@@ -202,9 +191,14 @@ export const useClassesStore = create<ClassesStore>((set, get) => ({
   createGrade: async (classId: string, name: string) => {
     set({ loading: true });
     try {
-      const res = await axios.post(`/api/classes/${classId}/grades`, { name });
-      set((state) => ({ grades: [...state.grades, res.data], loading: false }));
-      return res.data;
+      // Optimistically update grades
+      const newGrade: Grade = { id: crypto.randomUUID(), name, classId } as any;
+      set((state) => ({ grades: [...state.grades, newGrade], loading: false }));
+
+      // Persist to API
+      const res = await axios.put(`/api/classes/${classId}`, { grades: [...get().grades, { name }] });
+      set({ grades: res.data.grades || [] });
+      return res.data.grades?.find((g: Grade) => g.name === name) || newGrade;
     } catch (err: any) {
       set({ error: err.response?.data?.error || err.message, loading: false });
       return null;
@@ -214,12 +208,13 @@ export const useClassesStore = create<ClassesStore>((set, get) => ({
   updateGrade: async (classId: string, gradeId: string, name: string) => {
     set({ loading: true });
     try {
-      const res = await axios.put(`/api/classes/${classId}/grades/${gradeId}`, { name });
-      set((state) => ({
-        grades: state.grades.map((g) => (g.id === gradeId ? res.data : g)),
-        loading: false,
-      }));
-      return res.data;
+      const updatedGrades = get().grades.map((g) => (g.id === gradeId ? { ...g, name } : g));
+      set({ grades: updatedGrades, loading: false });
+
+      // Persist to API
+      const res = await axios.put(`/api/classes/${classId}`, { grades: updatedGrades });
+      set({ grades: res.data.grades || [] });
+      return res.data.grades?.find((g: Grade) => g.id === gradeId) || null;
     } catch (err: any) {
       set({ error: err.response?.data?.error || err.message, loading: false });
       return null;
@@ -229,8 +224,10 @@ export const useClassesStore = create<ClassesStore>((set, get) => ({
   deleteGrade: async (classId: string, gradeId: string) => {
     set({ loading: true });
     try {
-      await axios.delete(`/api/classes/${classId}/grades/${gradeId}`);
-      set((state) => ({ grades: state.grades.filter((g) => g.id !== gradeId), loading: false }));
+      const updatedGrades = get().grades.filter((g) => g.id !== gradeId);
+      set({ grades: updatedGrades, loading: false });
+
+      await axios.put(`/api/classes/${classId}`, { grades: updatedGrades });
       return true;
     } catch (err: any) {
       set({ error: err.response?.data?.error || err.message, loading: false });
@@ -253,8 +250,8 @@ export const useClassesStore = create<ClassesStore>((set, get) => ({
   selectClass: async (cls: Class) => {
     set({ selectedClass: { ...cls }, grades: [], students: [], attendance: [] });
     try {
-      const res = await axios.get(`/api/classes/${cls.id}/grades`);
-      set({ grades: res.data || [] });
+      const res = await axios.get(`/api/classes/${cls.id}`);
+      set({ grades: res.data.grades || [] });
     } catch (err: any) {
       set({ error: err.response?.data?.error || err.message });
     }

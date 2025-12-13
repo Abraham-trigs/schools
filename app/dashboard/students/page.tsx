@@ -5,10 +5,8 @@ import { useRouter } from "next/navigation";
 import { Loader2 } from "lucide-react";
 import AddStudentModal from "./components/AddStudentModal";
 import AssignClassGradeButton from "./components/AssignClassGradeButton";
-import {
-  useStudentStore,
-  StudentListItem,
-} from "@/app/store/useStudentStore.ts";
+import { useStudentStore, StudentListItem } from "@/app/store/useStudentStore";
+import { useClassesStore } from "@/app/store/useClassesStore";
 
 export default function StudentsPage() {
   const router = useRouter();
@@ -25,6 +23,8 @@ export default function StudentsPage() {
     fetchStudentAdmission,
     setFilters,
   } = useStudentStore();
+
+  const { classes, fetchClasses } = useClassesStore();
 
   // ------------------ Load Students ------------------
   const loadStudents = useCallback(() => {
@@ -48,7 +48,8 @@ export default function StudentsPage() {
 
   useEffect(() => {
     loadStudents();
-  }, [loadStudents]);
+    fetchClasses(); // Ensure classes (and grades) are loaded for the page
+  }, [loadStudents, fetchClasses]);
 
   // ------------------ Search ------------------
   const handleSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -160,17 +161,11 @@ export default function StudentsPage() {
                 {s.email ?? "-"}
               </td>
               <td className="border px-4 py-2">
-                {!s.classId ? (
-                  <AssignClassGradeButton
-                    studentId={s.id}
-                    currentClassId={s.classId}
-                    currentGradeId={s.gradeId}
-                    grades={[]} // pass your grades list from parent/store
-                    classes={[]} // pass your classes list from parent/store
-                  />
-                ) : (
-                  <span className="text-gray-500">Assigned</span>
-                )}
+                <AssignClassGradeButton
+                  studentId={s.id}
+                  currentClassId={s.classId}
+                  currentGradeId={s.gradeId}
+                />
               </td>
             </tr>
           ))}

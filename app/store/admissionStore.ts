@@ -185,6 +185,59 @@ export const useAdmissionStore = create<AdmissionStore>((set, get) => ({
     }
   },
 
+  // admissionStore.ts
+assignStudentClassGrade: async (studentId: string, classId: string, gradeId: string) => {
+  set({ loading: true, errors: {} });
+  try {
+    // Update the student
+    const schoolId = useAuthStore.getState().user?.school?.id;
+    if (!schoolId) throw new Error("Unauthorized: missing school ID");
+
+    const res = await axios.put(
+      `/api/students/${studentId}`,
+      { classId, gradeId },
+      { headers: { "X-School-ID": schoolId } }
+    );
+
+    const updatedStudent = res.data.student;
+
+    // Automatically update admission status
+    let admissionStatus = updatedStudent.classId && updatedStudent.gradeId ? "Enrolled" : "Pending";
+
+    // Update the admission record if exists
+    if (updatedStudent.admissionId) {
+      await axios.patch(
+        `/api/admissions/${updatedStudent.admissionId}`,
+        { classId, gradeId, admissionStatus },
+        { headers: { "X-School-ID": schoolId } }
+      );
+    }
+
+    // Update local state
+    set((state) => ({
+      formData: {
+        ...state.formData,
+        classId,
+        gradeId,
+      },
+    }));
+
+    // Optimistic UI update in student store
+    useStudentStore.setState((state) => ({
+      students: state.students.map((s) => (s.id === studentId ? updatedStudent : s)),
+      studentDetail: state.studentDetail?.id === studentId ? updatedStudent : state.studentDetail,
+    }));
+
+    return updatedStudent;
+  } catch (err: any) {
+    set({ errors: { assignStudentClassGrade: [err?.response?.data?.error || err.message || "Update failed"] } });
+    throw err;
+  } finally {
+    set({ loading: false });
+  }
+},
+
+
   fetchAdmission: async (applicationId) => {
     set({ loading: true, errors: {} });
     try {

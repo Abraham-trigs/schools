@@ -1,48 +1,59 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { useStudentStore } from "@/app/store/useStudentStore.ts";
-import { useAdmissionStore, GradeOption } from "@/app/store/admissionStore.ts";
+import { useClassesStore } from "@/app/store/useClassesStore";
+import { useAdmissionStore } from "@/app/store/admissionStore";
 
 interface AssignClassGradeButtonProps {
   studentId: string;
   currentClassId?: string;
   currentGradeId?: string;
-  grades: GradeOption[];
-  classes: { id: string; name: string }[];
 }
 
 export default function AssignClassGradeButton({
   studentId,
   currentClassId,
   currentGradeId,
-  grades,
-  classes,
 }: AssignClassGradeButtonProps) {
   const [open, setOpen] = useState(false);
   const [selectedClass, setSelectedClass] = useState(currentClassId || "");
   const [selectedGrade, setSelectedGrade] = useState(currentGradeId || "");
-
-  const { updateStudent } = useStudentStore();
-  const { selectGrade } = useAdmissionStore();
+  const [loading, setLoading] = useState(false);
 
   const modalRef = useRef<HTMLDivElement>(null);
 
+  const {
+    classes: storeClasses,
+    grades: storeGrades,
+    fetchClasses,
+    fetchClassById,
+    setSelectedClass: setStoreSelectedClass,
+  } = useClassesStore();
+  const { assignStudentClassGrade } = useAdmissionStore();
+
+  // Ensure classes are loaded
+  useEffect(() => {
+    if (!storeClasses.length) fetchClasses();
+  }, [storeClasses.length, fetchClasses]);
+
+  // Update selected values if props change
   useEffect(() => {
     setSelectedClass(currentClassId || "");
     setSelectedGrade(currentGradeId || "");
   }, [currentClassId, currentGradeId]);
 
-  // Focus first input when modal opens
+  // Fetch class with grades when class changes
   useEffect(() => {
-    if (open && modalRef.current) {
-      const firstInput =
-        modalRef.current.querySelector<HTMLSelectElement>("select");
-      firstInput?.focus();
-    }
-  }, [open]);
+    if (!selectedClass) return;
 
-  // Handle Escape key and Tab focus trap
+    fetchClassById(selectedClass).then((cls) => {
+      if (!cls) return;
+      const validGrade = cls.grades?.find((g) => g.id === selectedGrade);
+      setSelectedGrade(validGrade?.id || "");
+    });
+  }, [selectedClass, selectedGrade, fetchClassById]);
+
+  // Focus trap & Esc key
   useEffect(() => {
     if (!open || !modalRef.current) return;
 
@@ -56,22 +67,16 @@ export default function AssignClassGradeButton({
       if (e.key === "Escape") {
         e.preventDefault();
         setOpen(false);
-      } else if (e.key === "Tab") {
-        if (focusableElements.length === 0) return;
-
+      } else if (e.key === "Tab" && focusableElements.length > 0) {
         const first = focusableElements[0];
         const last = focusableElements[focusableElements.length - 1];
 
-        if (e.shiftKey) {
-          if (document.activeElement === first) {
-            e.preventDefault();
-            last.focus();
-          }
-        } else {
-          if (document.activeElement === last) {
-            e.preventDefault();
-            first.focus();
-          }
+        if (e.shiftKey && document.activeElement === first) {
+          e.preventDefault();
+          last.focus();
+        } else if (!e.shiftKey && document.activeElement === last) {
+          e.preventDefault();
+          first.focus();
         }
       }
     };
@@ -81,26 +86,29 @@ export default function AssignClassGradeButton({
   }, [open]);
 
   const handleAssign = async () => {
-    if (!studentId) return;
+    if (!studentId || !selectedClass || !selectedGrade) return;
 
-    if (!selectedGrade && selectedClass) {
-      const available = grades.find((g) => g.enrolled < g.capacity);
-      setSelectedGrade(available?.id || "");
+    setLoading(true);
+    try {
+      await assignStudentClassGrade(studentId, selectedClass, selectedGrade);
+      setOpen(false);
+    } catch (err) {
+      console.error("Failed to assign class/grade:", err);
+    } finally {
+      setLoading(false);
     }
-
-    await updateStudent(studentId, {
-      classId: selectedClass || undefined,
-      gradeId: selectedGrade || undefined,
-    });
-
-    setOpen(false);
   };
+
+  const filteredGrades = storeGrades
+    .filter((g) => g.classId === selectedClass)
+    .map((g) => ({ ...g, label: g.name }));
 
   return (
     <>
       <button
         className="px-2 py-1 bg-blue-500 text-white rounded hover:bg-blue-600 text-sm"
         onClick={() => setOpen(true)}
+        disabled={loading}
       >
         Assign Class & Grade
       </button>
@@ -117,6 +125,7 @@ export default function AssignClassGradeButton({
           >
             <h2 className="text-lg font-semibold mb-4">Assign Class & Grade</h2>
 
+            {/* Class Select */}
             <div className="mb-4">
               <label className="block mb-1 font-medium">Class</label>
               <select
@@ -125,7 +134,7 @@ export default function AssignClassGradeButton({
                 className="w-full border px-2 py-1 rounded"
               >
                 <option value="">Select Class</option>
-                {classes.map((cls) => (
+                {storeClasses.map((cls) => (
                   <option key={cls.id} value={cls.id}>
                     {cls.name}
                   </option>
@@ -133,41 +142,39 @@ export default function AssignClassGradeButton({
               </select>
             </div>
 
+            {/* Grade Select */}
             <div className="mb-4">
               <label className="block mb-1 font-medium">Grade</label>
               <select
                 value={selectedGrade}
                 onChange={(e) => setSelectedGrade(e.target.value)}
                 className="w-full border px-2 py-1 rounded"
+                disabled={!selectedClass || filteredGrades.length === 0}
               >
                 <option value="">Select Grade</option>
-                {grades
-                  .filter(
-                    (g) =>
-                      !selectedClass ||
-                      g.id === selectedGrade ||
-                      g.enrolled < g.capacity
-                  )
-                  .map((grade) => (
-                    <option key={grade.id} value={grade.id}>
-                      {grade.name} ({grade.enrolled}/{grade.capacity})
-                    </option>
-                  ))}
+                {filteredGrades.map((g) => (
+                  <option key={g.id} value={g.id}>
+                    {g.label}
+                  </option>
+                ))}
               </select>
             </div>
 
+            {/* Buttons */}
             <div className="flex justify-end gap-2 mt-4">
               <button
                 className="px-3 py-1 border rounded hover:bg-gray-100"
                 onClick={() => setOpen(false)}
+                disabled={loading}
               >
                 Cancel
               </button>
               <button
                 className="px-3 py-1 bg-blue-500 text-white rounded hover:bg-blue-600"
                 onClick={handleAssign}
+                disabled={!selectedClass || !selectedGrade || loading}
               >
-                Assign
+                {loading ? "Assigning..." : "Assign"}
               </button>
             </div>
           </div>

@@ -4,7 +4,7 @@
 import React, { useState, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useAdmissionStore } from "@/app/store/admissionStore.ts";
-import AdmissionButton from "../AdmissionButton.tsx";
+import StepActionButton from "../StepActionButton.tsx";
 
 // Step components
 import StepUserInfo from "./Step0UserInfo.tsx";
@@ -43,7 +43,6 @@ export default function MultiStepAdmissionForm({
   // Calculate progress bar
   const stepProgress = ((currentStep + 1) / maxSteps) * 100;
 
-  // Advance step after store confirms completion
   const advanceStep = () => {
     if (currentStep < maxSteps - 1) {
       setCurrentStep(currentStep + 1);
@@ -52,7 +51,7 @@ export default function MultiStepAdmissionForm({
     }
   };
 
-  const goBack = () => {
+  const goBackStep = () => {
     if (currentStep > 0) setCurrentStep(currentStep - 1);
   };
 
@@ -81,21 +80,20 @@ export default function MultiStepAdmissionForm({
         </motion.div>
       </AnimatePresence>
 
-      {/* Navigation */}
+      {/* Navigation Buttons */}
       <div className="flex justify-between mt-6">
         {currentStep > 0 && (
-          <button
-            type="button"
-            onClick={goBack}
-            className="bg-gray-400 text-white px-4 py-2 rounded hover:bg-gray-500 transition disabled:opacity-50"
-          >
-            Back
-          </button>
+          <StepActionButton
+            currentStep={currentStep}
+            label="Back"
+            onStepComplete={goBackStep} // After updating store, navigate back
+          />
         )}
-        <AdmissionButton
+
+        <StepActionButton
           currentStep={currentStep}
-          maxSteps={maxSteps}
-          onSuccess={advanceStep}
+          label={currentStep === maxSteps - 1 ? "Submit" : "Next"}
+          onStepComplete={advanceStep}
         />
       </div>
     </div>

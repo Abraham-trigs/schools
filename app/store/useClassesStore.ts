@@ -1,3 +1,6 @@
+// app/store/useClassesStore.ts
+// Purpose: Centralized classes store with full CRUD, grades, attendance, search, sorting, and normalized students
+
 "use client";
 
 import { create } from "zustand";
@@ -88,19 +91,25 @@ export const useClassesStore = create<ClassesStore>((set, get) => ({
 
     try {
       if (cache[cacheKey]) {
-        set({ classes: cache[cacheKey], loading: false });
+        const cachedClasses = cache[cacheKey].map((cls) => ({ ...cls, students: cls.students || [] }));
+        set({ classes: cachedClasses, loading: false });
         return;
       }
 
       const res = await axios.get(`/api/classes?page=${page}&perPage=${perPage}&search=${encodeURIComponent(search)}`);
       const data = res.data;
 
+      const normalized = data.classes.map((cls: any) => ({
+        ...cls,
+        students: cls.students || [],
+      }));
+
       set((state) => ({
-        classes: data.classes,
+        classes: normalized,
         total: data.total,
         page: data.page,
         perPage: data.perPage,
-        cache: { ...state.cache, [cacheKey]: data.classes },
+        cache: { ...state.cache, [cacheKey]: normalized },
         loading: false,
       }));
     } catch (err: any) {
@@ -112,9 +121,12 @@ export const useClassesStore = create<ClassesStore>((set, get) => ({
     set({ loading: true });
     try {
       const res = await axios.get(`/api/classes/${id}`);
+      const cls = res.data;
+
       set({
-        selectedClass: res.data,
-        grades: res.data.grades || [],
+        selectedClass: { ...cls, students: cls.students || [] },
+        grades: cls.grades || [],
+        students: cls.students || [],
         loading: false,
       });
     } catch (err: any) {
@@ -191,11 +203,9 @@ export const useClassesStore = create<ClassesStore>((set, get) => ({
   createGrade: async (classId: string, name: string) => {
     set({ loading: true });
     try {
-      // Optimistically update grades
       const newGrade: Grade = { id: crypto.randomUUID(), name, classId } as any;
       set((state) => ({ grades: [...state.grades, newGrade], loading: false }));
 
-      // Persist to API
       const res = await axios.put(`/api/classes/${classId}`, { grades: [...get().grades, { name }] });
       set({ grades: res.data.grades || [] });
       return res.data.grades?.find((g: Grade) => g.name === name) || newGrade;
@@ -211,7 +221,6 @@ export const useClassesStore = create<ClassesStore>((set, get) => ({
       const updatedGrades = get().grades.map((g) => (g.id === gradeId ? { ...g, name } : g));
       set({ grades: updatedGrades, loading: false });
 
-      // Persist to API
       const res = await axios.put(`/api/classes/${classId}`, { grades: updatedGrades });
       set({ grades: res.data.grades || [] });
       return res.data.grades?.find((g: Grade) => g.id === gradeId) || null;
@@ -251,7 +260,11 @@ export const useClassesStore = create<ClassesStore>((set, get) => ({
     set({ selectedClass: { ...cls }, grades: [], students: [], attendance: [] });
     try {
       const res = await axios.get(`/api/classes/${cls.id}`);
-      set({ grades: res.data.grades || [] });
+      const fullClass = res.data;
+      set({
+        grades: fullClass.grades || [],
+        students: fullClass.students || [],
+      });
     } catch (err: any) {
       set({ error: err.response?.data?.error || err.message });
     }
@@ -274,4 +287,3 @@ export const useClassesStore = create<ClassesStore>((set, get) => ({
     get().fetchClasses(1);
   },
 }));
-

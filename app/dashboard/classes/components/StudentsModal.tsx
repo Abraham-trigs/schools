@@ -1,3 +1,4 @@
+// app/classes/components/StudentsModal.tsx
 "use client";
 
 import {
@@ -39,21 +40,18 @@ export default function StudentsModal({
     if (isOpen && classId) fetchStudents(classId);
   }, [isOpen, classId, fetchStudents]);
 
-  // Normalize string for search
   const normalize = (str: string) =>
     str
       .normalize("NFD")
       .replace(/[\u0300-\u036f]/g, "")
       .toLowerCase();
 
-  // Filter students
   const filteredStudents = useMemo(() => {
     const term = normalize(debouncedSearch.trim());
     if (!term) return students.filter((s) => s.user?.name);
     return students.filter((s) => normalize(s.user?.name ?? "").includes(term));
   }, [students, debouncedSearch]);
 
-  // Highlight all matches in the name
   const highlightMatches = (name: string) => {
     const term = normalize(debouncedSearch.trim());
     if (!term) return name;
@@ -61,7 +59,6 @@ export default function StudentsModal({
     const normalizedName = normalize(name);
     const result: JSX.Element[] = [];
     let lastIndex = 0;
-
     const regex = new RegExp(term, "gi");
     let match;
 
@@ -110,6 +107,10 @@ export default function StudentsModal({
 
           {loading ? (
             <p className="text-gray-500 text-center">Loading...</p>
+          ) : students.length === 0 ? (
+            <p className="text-gray-500 text-center">
+              No students enrolled in this class yet.
+            </p>
           ) : filteredStudents.length === 0 ? (
             <p className="text-gray-500 text-center">
               No students match your search.
@@ -121,7 +122,6 @@ export default function StudentsModal({
                   key={s.id}
                   className="px-2 py-1 border rounded cursor-pointer hover:bg-gray-100"
                   onClick={() => {
-                    // Navigate to Student Detail page using studentId
                     const studentId = s.studentId ?? s.id;
                     router.push(`/dashboard/students/${studentId}`);
                     onClose();

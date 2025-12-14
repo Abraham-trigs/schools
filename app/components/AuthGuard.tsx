@@ -1,4 +1,3 @@
-// app/components/AuthGuard.tsx
 "use client";
 
 import { ReactNode, useEffect, useState } from "react";
@@ -7,7 +6,6 @@ import { useAuthStore } from "@/app/store/useAuthStore.ts";
 
 interface AuthGuardProps {
   children: ReactNode;
-  /** If true, will redirect to /login when unauthenticated */
   redirectOnFail?: boolean;
 }
 
@@ -23,13 +21,18 @@ export default function AuthGuard({
     let mounted = true;
 
     const verify = async () => {
-      const isAuth = await fetchUser(); // fetchUser handles refresh automatically
-      if (!mounted) return;
+      if (!user) {
+        // only fetch if no user in store
+        const isAuth = await fetchUser();
+        if (!mounted) return;
 
-      if (!isAuth && redirectOnFail) {
-        router.replace("auth/login");
+        if (!isAuth && redirectOnFail) {
+          router.replace("/auth/login");
+        } else {
+          setVerified(true);
+        }
       } else {
-        setVerified(true);
+        setVerified(true); // already have user
       }
     };
 
@@ -38,10 +41,9 @@ export default function AuthGuard({
     return () => {
       mounted = false;
     };
-  }, [fetchUser, redirectOnFail, router]);
+  }, [user, fetchUser, redirectOnFail, router]);
 
-  // Show loading until auth is verified
-  if (loading.fetchMe || !verified) {
+  if ((loading.fetchMe && !user) || !verified) {
     return (
       <div
         role="status"

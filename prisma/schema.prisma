@@ -140,18 +140,18 @@ model Class {
 
 // ------------------ Grade / Section ------------------
 model Grade {
-  id      String @id @default(cuid())
-  name    String @default("A") // defaults to "A" if not specified
-  classId String
-  class   Class  @relation(fields: [classId], references: [id])
+  id          String       @id @default(cuid())
+  name        String       @default("A") // defaults to "A" if not specified
+  classId     String?      // nullable foreign key
+  class       Class?       @relation(fields: [classId], references: [id])
 
-  students Student[] // optional
+  students    Student[]    // optional
 
   // Many-to-many relation with Staff (for multiple grade assignments)
-  staff Staff[] @relation("StaffGrades")
+  staff       Staff[]      @relation("StaffGrades")
 
-  createdAt   DateTime      @default(now())
-  updatedAt   DateTime      @updatedAt
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
   Application Application[]
 
   @@unique([name, classId])

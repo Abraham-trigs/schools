@@ -1,10 +1,8 @@
-// app/store/useAuthStore.ts
 "use client";
 
 import { create } from "zustand";
 import api from "@/lib/axios.ts";
 
-// ------------------ TYPES ------------------
 export interface School {
   id: string;
   name: string;
@@ -28,26 +26,26 @@ interface AuthError {
 interface AuthState {
   user: User | null;
   isLoggedIn: boolean;
-
   loading: {
     login: boolean;
     logout: boolean;
     refresh: boolean;
     fetchMe: boolean;
   };
-
   error: AuthError | null;
 
-  // ------------------ ACTIONS ------------------
   login: (email: string, password: string) => Promise<boolean>;
   logout: () => Promise<void>;
   refresh: () => Promise<boolean>;
   fetchMe: () => Promise<boolean>;
   fetchUser: () => Promise<boolean>;
+  fetchUserOnce: () => Promise<boolean>;
   setUser: (user: User | null) => void;
 }
 
-// ------------------ ZUSTAND STORE ------------------
+// ------------------ SINGLETON FLAG ------------------
+let initialized = false;
+
 export const useAuthStore = create<AuthState>((set, get) => ({
   user: null,
   isLoggedIn: false,
@@ -59,24 +57,19 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
   error: null,
 
-  // ------------------ Login ------------------
-  login: async (email: string, password: string) => {
+  login: async (email, password) => {
     set({ loading: { ...get().loading, login: true }, error: null });
     try {
       const res = await api.post("/auth/login", { email, password });
       if (res.status === 200) {
-        const user: User = res.data.user;
-        set({ user, isLoggedIn: true });
+        set({ user: res.data.user, isLoggedIn: true });
         return true;
       }
       set({ error: { type: "login", message: "Login failed" } });
       return false;
     } catch (err: any) {
       set({
-        error: {
-          type: "login",
-          message: err?.response?.data?.error || "Login failed",
-        },
+        error: { type: "login", message: err?.response?.data?.error || "Login failed" },
       });
       return false;
     } finally {
@@ -84,29 +77,24 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     }
   },
 
-  // ------------------ Logout ------------------
   logout: async () => {
     set({ loading: { ...get().loading, logout: true }, error: null });
     try {
       await api.post("/auth/logout");
       set({ user: null, isLoggedIn: false });
-    } catch (err: any) {
-      console.error("Logout error:", err);
-      set({
-        error: { type: "logout", message: "Logout failed" },
-      });
+    } catch (err) {
+      set({ error: { type: "logout", message: "Logout failed" } });
     } finally {
       set({ loading: { ...get().loading, logout: false } });
     }
   },
 
-  // ------------------ Refresh JWT ------------------
   refresh: async () => {
     set({ loading: { ...get().loading, refresh: true } });
     try {
       const res = await api.post("/auth/refresh");
       return res.status === 200;
-    } catch (err: any) {
+    } catch {
       set({ user: null, isLoggedIn: false });
       return false;
     } finally {
@@ -114,7 +102,6 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     }
   },
 
-  // ------------------ Fetch current user ------------------
   fetchMe: async () => {
     set({ loading: { ...get().loading, fetchMe: true }, error: null });
     try {
@@ -125,20 +112,15 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       }
       set({ user: null, isLoggedIn: false });
       return false;
-    } catch (err: any) {
+    } catch {
       set({ user: null, isLoggedIn: false });
-      set({
-        error: { type: "fetchMe", message: "Failed to fetch user" },
-      });
       return false;
     } finally {
       set({ loading: { ...get().loading, fetchMe: false } });
     }
   },
 
-  // ------------------ Ensure user is fetched ------------------
   fetchUser: async () => {
-    // Tries to fetchMe, refreshes silently if 401
     const me = await get().fetchMe();
     if (!me) {
       const refreshed = await get().refresh();
@@ -148,8 +130,12 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     return true;
   },
 
-  // ------------------ Set user manually ------------------
-  setUser: (user: User | null) => {
-    set({ user, isLoggedIn: !!user });
+  // ------------------ NEW: fetch only once ------------------
+  fetchUserOnce: async () => {
+    if (initialized) return !!get().user;
+    initialized = true;
+    return await get().fetchUser();
   },
+
+  setUser: (user) => set({ user, isLoggedIn: !!user }),
 }));

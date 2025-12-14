@@ -1,4 +1,6 @@
 // app/admission/components/MultiStepAdmissionForm.tsx
+// Purpose: Multi-step admission form with dynamic headers, optional descriptions, progress bar, navigation, and save/continue functionality
+
 "use client";
 
 import React, { useState, useMemo } from "react";
@@ -29,6 +31,30 @@ const steps = [
   StepFeesDeclaration,
 ];
 
+// Corresponding titles for headers
+const stepTitles = [
+  "User Information",
+  "Personal Information",
+  "Languages & Religion",
+  "Ward Details",
+  "Contact & Emergency",
+  "Medical Information",
+  "Family Details",
+  "Fees Declaration",
+];
+
+// Optional descriptions for each step
+const stepDescriptions: (string | undefined)[] = [
+  "Enter basic user details including name, email, and password.",
+  "Fill in your personal details such as date of birth and gender.",
+  "Provide your language skills and religious background.",
+  "Add ward details if applicable.",
+  "Enter contact and emergency information for guardians.",
+  "Provide relevant medical history or conditions.",
+  "Fill in family member details and previous family info.",
+  "Confirm fees and declarations before submission.",
+];
+
 interface MultiStepAdmissionFormProps {
   onComplete?: () => void; // called after final step
 }
@@ -42,6 +68,8 @@ export default function MultiStepAdmissionForm({
   const { completeStep } = useAdmissionStore();
 
   const StepComponent = useMemo(() => steps[currentStep], [currentStep]);
+  const currentTitle = stepTitles[currentStep];
+  const currentDescription = stepDescriptions[currentStep];
 
   // Calculate progress bar
   const stepProgress = ((currentStep + 1) / maxSteps) * 100;
@@ -79,6 +107,14 @@ export default function MultiStepAdmissionForm({
         />
       </div>
 
+      {/* Step Header + Description */}
+      <div className="mb-4">
+        <h2 className="text-2xl font-semibold text-gray-900">{currentTitle}</h2>
+        {currentDescription && (
+          <p className="text-gray-600 mt-1">{currentDescription}</p>
+        )}
+      </div>
+
       {/* Animated Step */}
       <AnimatePresence mode="wait">
         <motion.div
@@ -92,8 +128,6 @@ export default function MultiStepAdmissionForm({
         </motion.div>
       </AnimatePresence>
 
-      {/* Navigation Buttons */}
-      {/* Navigation Buttons */}
       {/* Navigation Buttons */}
       <div className="flex justify-between mt-6">
         {currentStep > 0 && (
@@ -113,7 +147,7 @@ export default function MultiStepAdmissionForm({
             onStepComplete={advanceStep}
           />
 
-          {/* Save & Continue Later button (hidden on step 1) */}
+          {/* Save & Continue Later button */}
           {currentStep !== 0 && (
             <StepActionButton
               currentStep={currentStep}
@@ -127,3 +161,25 @@ export default function MultiStepAdmissionForm({
     </div>
   );
 }
+
+/* ------------------------------------------------------------------------
+Design reasoning:
+- Adds optional descriptions to guide the user in each step without modifying step components.
+- Centralized header/description logic ensures consistent UX across multi-step forms.
+- Improves clarity and reduces errors in form completion.
+
+Structure:
+- `steps` array contains form components in order.
+- `stepTitles` and `stepDescriptions` arrays mirror steps for headers and optional text.
+- `currentStep` drives rendering, header, description, progress, and navigation.
+
+Implementation guidance:
+- Add new steps by updating `steps`, `stepTitles`, and optionally `stepDescriptions`.
+- Keep individual step components focused solely on form inputs.
+- Header/description automatically updates based on currentStep.
+
+Scalability insight:
+- Easily supports dynamic form sections and future localization of titles/descriptions.
+- Maintains clean separation of presentation vs. input logic.
+- Optional descriptions allow flexible UX improvements without touching step components.
+------------------------------------------------------------------------ */

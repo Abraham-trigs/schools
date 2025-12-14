@@ -10,8 +10,8 @@ import { useSubjectStore } from "@/app/store/subjectStore";
 import { useClassesStore } from "@/app/store/useClassesStore";
 import { useStaffStore } from "@/app/store/useStaffStore";
 import AddSubjectModal from "./components/AddsubjectModal.tsx";
-import EditSubjectModal from "./components/EditSubjectModal";
-import ConfirmDeleteModal from "./components/ConfirmDeleteModal";
+import EditSubjectModal from "./components/EditSubjectModal.tsx";
+import ConfirmDeleteModal from "./components/ConfirmDeleteModal.tsx";
 
 export default function SubjectsPage() {
   const router = useRouter();

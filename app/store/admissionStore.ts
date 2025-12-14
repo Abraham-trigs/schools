@@ -1,8 +1,11 @@
+// app/stores/admissionStore.ts
+// Purpose: Client-side Zustand store for multi-step student admissions
+// Fully integrated with updateAdmissionClient helper, optimistic updates, and step normalization
+
 "use client";
 
 import { create } from "zustand";
 import { z } from "zod";
-import axios from "axios";
 import { useAuthStore } from "./useAuthStore.ts";
 import { useClassesStore } from "./useClassesStore.ts";
 import {
@@ -10,8 +13,8 @@ import {
   FamilyMemberSchema,
   PreviousSchoolSchema,
   calculateProgress,
-  updateAdmission,
 } from "@/lib/helpers/admission.ts";
+import { updateAdmissionClient } from "@/lib/helpers/admissionClient.ts";
 
 export type FamilyMember = z.infer<typeof FamilyMemberSchema>;
 export type PreviousSchool = z.infer<typeof PreviousSchoolSchema>;
@@ -160,62 +163,55 @@ export const useAdmissionStore = create<AdmissionStore>((set, get) => ({
       apiCall().catch((err: any) => {
         set((state) => ({
           formData: { ...state.formData, [field]: prev, progress: calculateProgress({ ...state.formData, [field]: prev }) },
-          errors: { [field]: [err?.response?.data?.error || err.message] },
+          errors: { [field]: [err?.message || "Update failed"] },
         }));
       });
     }
   },
 
-completeStep: async (step) => {
-  set({ loading: true, errors: {} });
+  completeStep: async (step) => {
+    set({ loading: true, errors: {} });
 
-  try {
-    const schoolId = useAuthStore.getState().user?.school?.id;
-    if (!schoolId) throw new Error("Unauthorized");
+    try {
+      const schoolId = useAuthStore.getState().user?.school?.id;
+      if (!schoolId) throw new Error("Unauthorized");
 
-    const payload = normalizeStepData(step, get().formData);
+      const payload = normalizeStepData(step, get().formData);
 
-    if (step === 0) {
-      // Step 0: Create user only if not already created
-      if (get().userCreated && get().formData.applicationId) {
-        // User already exists, update instead of creating
-        await updateAdmission(axios, get().formData.applicationId, 0, payload);
+      if (step === 0) {
+        if (get().userCreated && get().formData.applicationId) {
+          await updateAdmissionClient(get().formData.applicationId, 0, payload);
+        } else {
+          const res = await updateAdmissionClient(null, 0, payload, true);
+          set((state) => ({
+            formData: {
+              ...state.formData,
+              applicationId: res.admission.id,
+              studentId: res.admission.studentId,
+            },
+            userCreated: true,
+          }));
+        }
       } else {
-        // Original creation logic
-        const res = await axios.post("/api/admissions", { ...payload, step }, {
-          headers: { "X-School-ID": schoolId },
-        });
-        set((state) => ({
-          formData: {
-            ...state.formData,
-            applicationId: res.data.admission.id,
-            studentId: res.data.admission.studentId,
-          },
-          userCreated: true,
-        }));
+        const appId = get().formData.applicationId;
+        if (!appId) throw new Error("Missing applicationId for update");
+        await updateAdmissionClient(appId, step, payload);
       }
-    } else {
-      // All other steps: update the existing admission
-      const appId = get().formData.applicationId;
-      if (!appId) throw new Error("Missing applicationId for update");
-      await updateAdmission(axios, appId, step, payload);
+
+      set((state) => ({
+        formData: { ...state.formData, progress: calculateProgress(state.formData) },
+      }));
+
+      return true;
+    } catch (err: any) {
+      set({
+        errors: { completeStep: [err?.message || "Step update failed"] },
+      });
+      return false;
+    } finally {
+      set({ loading: false });
     }
-
-    // Update local progress
-    set((state) => ({
-      formData: { ...state.formData, progress: calculateProgress(state.formData) },
-    }));
-
-    return true;
-  } catch (err: any) {
-    set({
-      errors: { completeStep: [err?.response?.data?.error || err.message] },
-    });
-    return false;
-  } finally {
-    set({ loading: false });
-  }
-},
+  },
 
   fetchAdmission: async (applicationId) => {
     set({ loading: true, errors: {} });
@@ -223,8 +219,7 @@ completeStep: async (step) => {
       const schoolId = useAuthStore.getState().user?.school?.id;
       if (!schoolId) throw new Error("Unauthorized");
 
-      const res = await axios.get(`/api/admission/${applicationId}`, { headers: { "X-School-ID": schoolId } });
-      const data = res.data.application || res.data;
+      const data = await updateAdmissionClient(applicationId, undefined, undefined, false, true);
 
       const classesStore = useClassesStore.getState();
       const selectedClass = classesStore.classes.find(c => c.id === data.classId);
@@ -234,7 +229,7 @@ completeStep: async (step) => {
 
       get().loadStudentData(data);
     } catch (err: any) {
-      set({ errors: { fetchAdmission: [err.message] } });
+      set({ errors: { fetchAdmission: [err.message || "Fetch failed"] } });
     } finally {
       set({ loading: false });
     }
@@ -243,14 +238,11 @@ completeStep: async (step) => {
   deleteAdmission: async (applicationId) => {
     set({ loading: true, errors: {} });
     try {
-      const schoolId = useAuthStore.getState().user?.school?.id;
-      if (!schoolId) throw new Error("Unauthorized");
-
-      await axios.delete(`/api/admission/${applicationId}`, { headers: { "X-School-ID": schoolId } });
+      await updateAdmissionClient(applicationId, undefined, undefined, false, false, "DELETE");
       set({ formData: admissionFormSchema.parse({}), userCreated: false });
       return true;
     } catch (err: any) {
-      set({ errors: { deleteAdmission: [err?.response?.data?.error || err.message] } });
+      set({ errors: { deleteAdmission: [err.message || "Delete failed"] } });
       return false;
     } finally {
       set({ loading: false });
@@ -285,7 +277,7 @@ completeStep: async (step) => {
     get().optimisticUpdate(
       "familyMembers",
       (prev = []) => [...prev, member],
-      () => updateAdmission(axios, get().formData.applicationId!, 6, { familyMembers: [...(get().formData.familyMembers || []), member] })
+      () => updateAdmissionClient(get().formData.applicationId!, 6, { familyMembers: [...(get().formData.familyMembers || []), member] })
     );
   },
 
@@ -293,7 +285,7 @@ completeStep: async (step) => {
     get().optimisticUpdate(
       "familyMembers",
       (prev = []) => prev.filter((_, i) => i !== idx),
-      () => updateAdmission(axios, get().formData.applicationId!, 6, { familyMembers: [...(get().formData.familyMembers || [])].filter((_, i) => i !== idx) })
+      () => updateAdmissionClient(get().formData.applicationId!, 6, { familyMembers: [...(get().formData.familyMembers || [])].filter((_, i) => i !== idx) })
     );
   },
 
@@ -301,7 +293,7 @@ completeStep: async (step) => {
     get().optimisticUpdate(
       "previousSchools",
       (prev = []) => [...prev, school],
-      () => updateAdmission(axios, get().formData.applicationId!, 6, { previousSchools: [...(get().formData.previousSchools || []), school] })
+      () => updateAdmissionClient(get().formData.applicationId!, 6, { previousSchools: [...(get().formData.previousSchools || []), school] })
     );
   },
 
@@ -309,7 +301,7 @@ completeStep: async (step) => {
     get().optimisticUpdate(
       "previousSchools",
       (prev = []) => prev.filter((_, i) => i !== idx),
-      () => updateAdmission(axios, get().formData.applicationId!, 6, { previousSchools: [...(get().formData.previousSchools || [])].filter((_, i) => i !== idx) })
+      () => updateAdmissionClient(get().formData.applicationId!, 6, { previousSchools: [...(get().formData.previousSchools || [])].filter((_, i) => i !== idx) })
     );
   },
 
@@ -357,3 +349,39 @@ completeStep: async (step) => {
     }));
   },
 }));
+
+/* -------------------------------------------------------------------------- */
+/*                             Design Reasoning                               */
+/* -------------------------------------------------------------------------- */
+/*
+- Fully decoupled from direct axios usage.
+- All API interactions are centralized through `updateAdmissionClient`.
+- Optimistic updates preserve UX while rolling back on failure.
+*/
+
+/* -------------------------------------------------------------------------- */
+/*                                Structure                                   */
+/* -------------------------------------------------------------------------- */
+/*
+- `completeStep` handles both Step 0 creation and subsequent updates.
+- `fetchAdmission` retrieves full admission data and enriches with class/grade names.
+- Family and PreviousSchool manipulations use optimistic updates with API sync.
+*/
+
+/* -------------------------------------------------------------------------- */
+/*                        Implementation Guidance                             */
+/* -------------------------------------------------------------------------- */
+/*
+- `updateAdmissionClient` should be kept up-to-date with API changes.
+- Always normalize step data before sending to prevent schema errors.
+- Error handling surfaces field-level messages where possible.
+*/
+
+/* -------------------------------------------------------------------------- */
+/*                           Scalability Insight                              */
+/* -------------------------------------------------------------------------- */
+/*
+- Centralized client helper allows easy switching to different HTTP libraries.
+- Store is fully typed and extendable to additional admission steps.
+- Optimistic pattern supports offline/fast UI updates safely.
+*/

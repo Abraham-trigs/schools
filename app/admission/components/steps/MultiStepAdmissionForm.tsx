@@ -2,14 +2,8 @@
 "use client";
 
 import React, { useState, useMemo } from "react";
-import { useForm, FormProvider } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
 import { motion, AnimatePresence } from "framer-motion";
-
-import {
-  useAdmissionStore,
-  admissionFormSchema,
-} from "@/app/store/admissionStore.ts";
+import { useAdmissionStore } from "@/app/store/admissionStore.ts";
 import AdmissionButton from "../AdmissionButton.tsx";
 
 // Step components
@@ -22,6 +16,7 @@ import StepMedicalInfo from "./Step5MedicalInfo.tsx";
 import StepPreviousFamily from "./Step6PreviousFamily.tsx";
 import StepFeesDeclaration from "./Step7FeesDeclaration.tsx";
 
+// Steps in order
 const steps = [
   StepUserInfo,
   StepPersonalInfo,
@@ -33,77 +28,76 @@ const steps = [
   StepFeesDeclaration,
 ];
 
-export default function MultiStepAdmissionForm() {
-  const methods = useForm({
-    resolver: zodResolver(admissionFormSchema),
-    defaultValues: useAdmissionStore.getState().formData,
-    mode: "onBlur",
-  });
+interface MultiStepAdmissionFormProps {
+  onComplete?: () => void; // called after final step
+}
 
-  const { handleSubmit } = methods;
+export default function MultiStepAdmissionForm({
+  onComplete,
+}: MultiStepAdmissionFormProps) {
   const [currentStep, setCurrentStep] = useState(0);
   const maxSteps = steps.length;
 
   const StepComponent = useMemo(() => steps[currentStep], [currentStep]);
 
-  // Calculate per-step progress for progress bar
+  // Calculate progress bar
   const stepProgress = ((currentStep + 1) / maxSteps) * 100;
 
-  const onNext = async () => {
-    await handleSubmit(async () => {
-      const success = await useAdmissionStore
-        .getState()
-        .completeStep(currentStep);
-      if (success && currentStep < maxSteps - 1)
-        setCurrentStep(currentStep + 1);
-    })();
+  // Advance step after store confirms completion
+  const advanceStep = () => {
+    if (currentStep < maxSteps - 1) {
+      setCurrentStep(currentStep + 1);
+    } else if (onComplete) {
+      onComplete();
+    }
   };
 
-  const onBack = () => {
+  const goBack = () => {
     if (currentStep > 0) setCurrentStep(currentStep - 1);
   };
 
   return (
-    <FormProvider {...methods}>
-      <div className="w-full max-w-4xl mx-auto p-4">
-        {/* Progress Bar */}
-        <div className="relative w-full h-3 bg-gray-200 rounded mb-6">
-          <motion.div
-            className="absolute h-3 bg-green-500 rounded"
-            initial={{ width: 0 }}
-            animate={{ width: `${stepProgress}%` }}
-            transition={{ duration: 0.4 }}
-          />
-        </div>
-
-        {/* Step Content with AnimatePresence */}
-        <AnimatePresence mode="wait">
-          <motion.div
-            key={currentStep}
-            initial={{ opacity: 0, x: 50 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: -50 }}
-            transition={{ duration: 0.3 }}
-          >
-            <StepComponent />
-          </motion.div>
-        </AnimatePresence>
-
-        {/* Buttons */}
-        <div className="flex justify-between mt-6">
-          <AdmissionButton
-            type="back"
-            currentStep={currentStep}
-            onBack={onBack}
-          />
-          <AdmissionButton
-            type="next"
-            currentStep={currentStep}
-            maxSteps={maxSteps}
-            label={currentStep === maxSteps - 1 ? "Submit" : "Next"}
-          />
-        </div>
+    <div className="w-full max-w-4xl mx-auto p-4">
+      {/* Progress Bar */}
+      <div className="relative w-full h-3 bg-gray-200 rounded mb-6">
+        <motion.div
+          className="absolute h-3 bg-green-500 rounded"
+          initial={{ width: 0 }}
+          animate={{ width: `${stepProgress}%` }}
+          transition={{ duration: 0.4 }}
+        />
       </div>
-    </FormProvider>
+
+      {/* Animated Step */}
+      <AnimatePresence mode="wait">
+        <motion.div
+          key={currentStep}
+          initial={{ opacity: 0, x: 50 }}
+          animate={{ opacity: 1, x: 0 }}
+          exit={{ opacity: 0, x: -50 }}
+          transition={{ duration: 0.3 }}
+        >
+          <StepComponent />
+        </motion.div>
+      </AnimatePresence>
+
+      {/* Navigation */}
+      <div className="flex justify-between mt-6">
+        {currentStep > 0 && (
+          <button
+            type="button"
+            onClick={goBack}
+            className="bg-gray-400 text-white px-4 py-2 rounded hover:bg-gray-500 transition disabled:opacity-50"
+          >
+            Back
+          </button>
+        )}
+        <AdmissionButton
+          currentStep={currentStep}
+          maxSteps={maxSteps}
+          onSuccess={advanceStep}
+        />
+      </div>
+    </div>
   );
 }

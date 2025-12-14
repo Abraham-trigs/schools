@@ -20,18 +20,20 @@ export default function StepPersonalInfo() {
             ? new Date(formData.dateOfBirth).toISOString().substr(0, 10)
             : ""
         }
-        onChangeValue={(v) => setField("dateOfBirth", v)}
+        onChangeValue={(v: string) =>
+          setField("dateOfBirth", v ? new Date(v).toISOString() : "")
+        }
       />
       <LabeledInput
         label="Nationality"
         value={formData.nationality || ""}
-        onChangeValue={(v) => setField("nationality", v)}
+        onChangeValue={(v: string) => setField("nationality", v)}
         placeholder="Enter nationality"
       />
       <LabeledInput
         label="Sex"
         value={formData.sex || ""}
-        onChangeValue={(v) => setField("sex", v)}
+        onChangeValue={(v: string) => setField("sex", v)}
         placeholder="Enter sex"
       />
     </div>
@@ -40,20 +42,20 @@ export default function StepPersonalInfo() {
 
 /*
 Design reasoning:
-- Uses LabeledInput with onChangeValue to ensure only string values are sent to the store.
-- Normalizes date input to ISO format for consistent storage.
-- Prevents [object Object] assignment in zustand state.
+- Ensures all onChangeValue callbacks send normalized string/ISO data to the store.
+- Prevents [object Object] issues caused by passing event objects instead of string values.
+- Maintains date consistency across forms using ISO string format.
 
 Structure:
 - Functional component StepPersonalInfo
+- Uses useAdmissionStore to update state
 - Three fields: dateOfBirth, nationality, sex
-- Uses useAdmissionStore for state updates
 
 Implementation guidance:
-- Drop-in replacement for previous Step1PersonalInfo.tsx
-- Maintain ISO string formatting for date input for consistency across forms
+- Always use onChangeValue for LabeledInput to avoid raw event objects.
+- Normalize date inputs before sending to store.
 
 Scalability insight:
-- Pattern supports adding more personal info fields easily
-- Using onChangeValue ensures consistency across all form steps
+- Adding more personal info fields is straightforward.
+- Pattern ensures consistent state updates and avoids UX bugs in multi-step forms.
 */

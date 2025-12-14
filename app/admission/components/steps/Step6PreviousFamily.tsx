@@ -1,5 +1,5 @@
 // app/admission/components/StepPreviousFamily.tsx
-// Purpose: Step for adding previous schools and family members in the admission form, handling dynamic additions and removals.
+// Purpose: Step for adding previous schools and family members in the admission form, with normalized inputs, safe date handling, and boolean selection.
 
 "use client";
 
@@ -23,6 +23,10 @@ export default function StepPreviousFamily() {
   const [school, setSchool] = useState<Partial<PreviousSchool>>({});
   const [member, setMember] = useState<Partial<FamilyMember>>({});
 
+  // Helper to format Date objects or ISO strings safely
+  const formatDate = (date?: Date | string) =>
+    date ? new Date(date).toISOString().substr(0, 10) : "";
+
   return (
     <div className="space-y-6">
       {/* Previous Schools */}
@@ -31,7 +35,7 @@ export default function StepPreviousFamily() {
         {formData.previousSchools?.map((s, idx) => (
           <div key={idx} className="flex justify-between items-center">
             <span>
-              {s.name} ({s.startDate?.toString()} - {s.endDate?.toString()})
+              {s.name} ({formatDate(s.startDate)} - {formatDate(s.endDate)})
             </span>
             <button
               type="button"
@@ -56,18 +60,19 @@ export default function StepPreviousFamily() {
         <LabeledInput
           label="Start Date"
           type="date"
-          value={school.startDate?.toString() || ""}
+          value={formatDate(school.startDate)}
           onChangeValue={(v) => setSchool({ ...school, startDate: v })}
         />
         <LabeledInput
           label="End Date"
           type="date"
-          value={school.endDate?.toString() || ""}
+          value={formatDate(school.endDate)}
           onChangeValue={(v) => setSchool({ ...school, endDate: v })}
         />
         <button
           type="button"
           onClick={() => {
+            if (!school.name || !school.startDate || !school.endDate) return; // simple validation
             addPreviousSchool(school as PreviousSchool);
             setSchool({});
           }}
@@ -141,16 +146,26 @@ export default function StepPreviousFamily() {
           value={member.religion || ""}
           onChangeValue={(v) => setMember({ ...member, religion: v })}
         />
-        <LabeledInput
-          label="Is Alive"
-          value={member.isAlive ? "Yes" : "No"}
-          onChangeValue={(v) =>
-            setMember({ ...member, isAlive: v.toLowerCase() === "yes" })
-          }
-        />
+        <label className="block">
+          <span className="text-sm font-medium">Is Alive</span>
+          <select
+            value={
+              member.isAlive === undefined ? "" : member.isAlive ? "Yes" : "No"
+            }
+            onChange={(e) =>
+              setMember({ ...member, isAlive: e.target.value === "Yes" })
+            }
+            className="mt-1 block w-full border-gray-300 rounded"
+          >
+            <option value="">Select</option>
+            <option value="Yes">Yes</option>
+            <option value="No">No</option>
+          </select>
+        </label>
         <button
           type="button"
           onClick={() => {
+            if (!member.name || !member.relation) return; // minimal validation
             addFamilyMember(member as FamilyMember);
             setMember({});
           }}
@@ -165,19 +180,22 @@ export default function StepPreviousFamily() {
 
 /*
 Design reasoning:
-- Ensures all inputs are normalized with the `onChangeValue` method to avoid issues like [object Object].
-- Manages both previous schools and family members in the same form step with dynamic additions and removals.
+- Uses safe date formatting for previous schools.
+- Boolean select for "Is Alive" ensures consistent true/false values.
+- Minimal per-field validation prevents empty or invalid entries.
+- Fully store-driven; advances step only when completeStep confirms success.
 
 Structure:
-- Two main sections: Previous Schools and Family Members.
-- Each section uses `LabeledInput` components for input fields, and buttons are provided for dynamic addition/removal.
-- Uses Zustand state for managing form data and actions.
+- Two sections: Previous Schools and Family Members.
+- LabeledInput for fields, select for boolean, add/remove buttons.
+- Local state manages form inputs before committing to the store.
 
 Implementation guidance:
-- Drop in this updated version in place of the previous `StepPreviousFamily.tsx`.
-- Be sure to test adding/removing both schools and family members to ensure proper state updates.
+- Replace old StepPreviousFamily.tsx with this file.
+- Test adding/removing schools and family members to ensure state updates properly.
+- Keep `completeStep` logic in AdmissionButton for step advancement.
 
 Scalability insight:
-- This approach scales easily to additional fields or complex structures.
-- The same pattern can be used for other dynamic forms with additions/removals, ensuring consistency in input handling.
+- Pattern supports additional dynamic collections with minimal changes.
+- Can be reused for other forms requiring dynamic list inputs with store-backed state.
 */

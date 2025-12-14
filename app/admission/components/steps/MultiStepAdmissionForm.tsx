@@ -3,8 +3,9 @@
 
 import React, { useState, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { useAdmissionStore } from "@/app/store/admissionStore.ts";
+import { useRouter } from "next/navigation";
 import StepActionButton from "../StepActionButton.tsx";
+import { useAdmissionStore } from "@/app/store/admissionStore.ts";
 
 // Step components
 import StepUserInfo from "./Step0UserInfo.tsx";
@@ -37,6 +38,8 @@ export default function MultiStepAdmissionForm({
 }: MultiStepAdmissionFormProps) {
   const [currentStep, setCurrentStep] = useState(0);
   const maxSteps = steps.length;
+  const router = useRouter();
+  const { completeStep } = useAdmissionStore();
 
   const StepComponent = useMemo(() => steps[currentStep], [currentStep]);
 
@@ -53,6 +56,15 @@ export default function MultiStepAdmissionForm({
 
   const goBackStep = () => {
     if (currentStep > 0) setCurrentStep(currentStep - 1);
+  };
+
+  const saveAndContinueLater = async () => {
+    try {
+      await completeStep(currentStep); // persist current step
+      router.push("/dashboard"); // navigate away
+    } catch (err) {
+      console.error("Save & Continue Later failed:", err);
+    }
   };
 
   return (
@@ -81,20 +93,36 @@ export default function MultiStepAdmissionForm({
       </AnimatePresence>
 
       {/* Navigation Buttons */}
+      {/* Navigation Buttons */}
+      {/* Navigation Buttons */}
       <div className="flex justify-between mt-6">
         {currentStep > 0 && (
           <StepActionButton
             currentStep={currentStep}
             label="Back"
-            onStepComplete={goBackStep} // After updating store, navigate back
+            colorClass="bg-gray-400 hover:bg-gray-500"
+            onStepComplete={goBackStep}
           />
         )}
 
-        <StepActionButton
-          currentStep={currentStep}
-          label={currentStep === maxSteps - 1 ? "Submit" : "Next"}
-          onStepComplete={advanceStep}
-        />
+        <div className="flex gap-3 ml-auto">
+          <StepActionButton
+            currentStep={currentStep}
+            label={currentStep === maxSteps - 1 ? "Submit" : "Next"}
+            colorClass="bg-green-500 hover:bg-green-600"
+            onStepComplete={advanceStep}
+          />
+
+          {/* Save & Continue Later button (hidden on step 1) */}
+          {currentStep !== 0 && (
+            <StepActionButton
+              currentStep={currentStep}
+              label="Save & Continue Later"
+              colorClass="bg-blue-500 hover:bg-blue-600"
+              onStepComplete={saveAndContinueLater}
+            />
+          )}
+        </div>
       </div>
     </div>
   );

@@ -43,7 +43,7 @@
     "next-env.d.ts",
     "prisma/**/*.ts",
     "build/types/**/*.ts"
-, "app/dashboard/library"  ],
+, "app/(dashboard)/library"  ],
   "exclude": [
     "node_modules",
     ".next",

@@ -43,7 +43,6 @@ export default function MultiStepAdmissionForm() {
   const { handleSubmit } = methods;
   const [currentStep, setCurrentStep] = useState(0);
   const maxSteps = steps.length;
-  const { formData } = useAdmissionStore();
 
   const StepComponent = useMemo(() => steps[currentStep], [currentStep]);
 
@@ -51,7 +50,7 @@ export default function MultiStepAdmissionForm() {
   const stepProgress = ((currentStep + 1) / maxSteps) * 100;
 
   const onNext = async () => {
-    const valid = await handleSubmit(async () => {
+    await handleSubmit(async () => {
       const success = await useAdmissionStore
         .getState()
         .completeStep(currentStep);
@@ -66,7 +65,7 @@ export default function MultiStepAdmissionForm() {
 
   return (
     <FormProvider {...methods}>
-      <div className="w-full max-w-3xl mx-auto p-4">
+      <div className="w-full max-w-4xl mx-auto p-4">
         {/* Progress Bar */}
         <div className="relative w-full h-3 bg-gray-200 rounded mb-6">
           <motion.div
@@ -78,7 +77,7 @@ export default function MultiStepAdmissionForm() {
         </div>
 
         {/* Step Content with AnimatePresence */}
-        <AnimatePresence exitBeforeEnter>
+        <AnimatePresence mode="wait">
           <motion.div
             key={currentStep}
             initial={{ opacity: 0, x: 50 }}

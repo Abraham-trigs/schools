@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { SchoolAccount } from "@/lib/schoolAccount";
+import { SchoolAccount } from "@/lib/schoolAccount.ts";
 import { StepSchemas, updateAdmission } from "@/lib/helpers/admission.ts";
 
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
@@ -13,8 +13,9 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 
     const body = await req.json();
     const stepIndex = body.step;
-    if (typeof stepIndex !== "number" || !StepSchemas[stepIndex])
+    if (typeof stepIndex !== "number" || !StepSchemas[stepIndex]) {
       return NextResponse.json({ error: "Invalid step" }, { status: 400 });
+    }
 
     const validatedData = StepSchemas[stepIndex].parse(body);
 

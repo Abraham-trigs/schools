@@ -1,45 +1,59 @@
-// app/admission/components/steps/StepPersonalInfo.tsx
+// app/admission/components/Step1PersonalInfo.tsx
+// Purpose: Step 1 of the admission form — captures personal info with normalized inputs.
+
 "use client";
 
 import React from "react";
-import { useFormContext } from "react-hook-form";
-import LabeledInput from "../LabeledInput.tsx";
+import { useAdmissionStore } from "@/app/store/admissionStore.ts";
+import LabeledInput from "./LabeledInput.tsx";
 
 export default function StepPersonalInfo() {
-  const {
-    register,
-    formState: { errors },
-  } = useFormContext();
+  const { formData, setField } = useAdmissionStore();
 
   return (
-    <>
+    <div className="space-y-4">
       <LabeledInput
-        {...register("dateOfBirth")}
-        type="date"
         label="Date of Birth"
-        error={errors.dateOfBirth?.message as string}
+        type="date"
+        value={
+          formData.dateOfBirth
+            ? new Date(formData.dateOfBirth).toISOString().substr(0, 10)
+            : ""
+        }
+        onChangeValue={(v) => setField("dateOfBirth", v)}
       />
       <LabeledInput
-        {...register("nationality")}
         label="Nationality"
-        error={errors.nationality?.message as string}
+        value={formData.nationality || ""}
+        onChangeValue={(v) => setField("nationality", v)}
+        placeholder="Enter nationality"
       />
-      <div className="flex flex-col w-full mb-4">
-        <label className="mb-1 text-gray-700 font-medium">Sex</label>
-        <select
-          {...register("sex")}
-          className="border rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-        >
-          <option value="">Select Sex</option>
-          <option value="Male">Male</option>
-          <option value="Female">Female</option>
-        </select>
-        {errors.sex && (
-          <span className="text-red-600 text-xs mt-1">
-            {errors.sex.message}
-          </span>
-        )}
-      </div>
-    </>
+      <LabeledInput
+        label="Sex"
+        value={formData.sex || ""}
+        onChangeValue={(v) => setField("sex", v)}
+        placeholder="Enter sex"
+      />
+    </div>
   );
 }
+
+/*
+Design reasoning:
+- Uses LabeledInput with onChangeValue to ensure only string values are sent to the store.
+- Normalizes date input to ISO format for consistent storage.
+- Prevents [object Object] assignment in zustand state.
+
+Structure:
+- Functional component StepPersonalInfo
+- Three fields: dateOfBirth, nationality, sex
+- Uses useAdmissionStore for state updates
+
+Implementation guidance:
+- Drop-in replacement for previous Step1PersonalInfo.tsx
+- Maintain ISO string formatting for date input for consistency across forms
+
+Scalability insight:
+- Pattern supports adding more personal info fields easily
+- Using onChangeValue ensures consistency across all form steps
+*/

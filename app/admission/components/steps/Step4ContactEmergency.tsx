@@ -1,43 +1,61 @@
-// app/admission/components/steps/StepContactEmergency.tsx
+// app/admission/components/Step4ContactEmergency.tsx
+// Purpose: Step 4 of the admission form — captures contact and emergency information with normalized inputs.
+
 "use client";
 
 import React from "react";
-import { useFormContext } from "react-hook-form";
-import LabeledInput from "../LabeledInput.tsx";
+import { useAdmissionStore } from "@/app/store/admissionStore.ts";
+import LabeledInput from "./LabeledInput.tsx";
 
 export default function StepContactEmergency() {
-  const {
-    register,
-    formState: { errors },
-  } = useFormContext();
+  const { formData, setField } = useAdmissionStore();
 
   return (
-    <>
+    <div className="space-y-4">
       <LabeledInput
-        {...register("postalAddress")}
         label="Postal Address"
-        error={errors.postalAddress?.message as string}
+        value={formData.postalAddress || ""}
+        onChangeValue={(v) => setField("postalAddress", v)}
       />
       <LabeledInput
-        {...register("residentialAddress")}
         label="Residential Address"
-        error={errors.residentialAddress?.message as string}
+        value={formData.residentialAddress || ""}
+        onChangeValue={(v) => setField("residentialAddress", v)}
       />
       <LabeledInput
-        {...register("wardMobile")}
         label="Ward Mobile"
-        error={errors.wardMobile?.message as string}
+        value={formData.wardMobile || ""}
+        onChangeValue={(v) => setField("wardMobile", v)}
       />
       <LabeledInput
-        {...register("emergencyContact")}
         label="Emergency Contact"
-        error={errors.emergencyContact?.message as string}
+        value={formData.emergencyContact || ""}
+        onChangeValue={(v) => setField("emergencyContact", v)}
       />
       <LabeledInput
-        {...register("emergencyMedicalContact")}
         label="Emergency Medical Contact"
-        error={errors.emergencyMedicalContact?.message as string}
+        value={formData.emergencyMedicalContact || ""}
+        onChangeValue={(v) => setField("emergencyMedicalContact", v)}
       />
-    </>
+    </div>
   );
 }
+
+/*
+Design reasoning:
+- Uses LabeledInput with onChangeValue to normalize events to string values.
+- Ensures state in zustand is updated correctly, preventing [object Object] issues.
+- Centralizes emergency and contact info in a single step.
+
+Structure:
+- Functional component with five input fields mapped to store.
+- Integrates with useAdmissionStore for direct state updates.
+
+Implementation guidance:
+- Drop-in replacement for the previous StepContactEmergency.tsx.
+- All inputs now use onChangeValue consistently across the form.
+
+Scalability insight:
+- Standardized input handling simplifies validation, error display, and store updates for multi-step forms.
+- Pattern can be applied to all remaining step components to maintain UX consistency.
+*/

@@ -1,45 +1,70 @@
-// app/admission/components/steps/StepUserInfo.tsx
+// app/admission/components/Step0UserInfo.tsx
+// Purpose: Step 0 of the admission form — captures basic user info with fully normalized inputs.
+
 "use client";
 
 import React from "react";
-import { useFormContext } from "react-hook-form";
-import LabeledInput from "../LabeledInput.tsx";
+import { useAdmissionStore } from "@/app/store/admissionStore.ts";
+import LabeledInput from "./LabeledInput.tsx";
 
 export default function StepUserInfo() {
-  const {
-    register,
-    formState: { errors },
-  } = useFormContext();
+  const { formData, setField } = useAdmissionStore();
 
   return (
-    <>
+    <div className="space-y-4">
       <LabeledInput
-        {...register("surname")}
         label="Surname"
-        error={errors.surname?.message as string}
+        value={formData.surname || ""}
+        onChangeValue={(v) => setField("surname", v)}
+        placeholder="Enter surname"
       />
       <LabeledInput
-        {...register("firstName")}
         label="First Name"
-        error={errors.firstName?.message as string}
+        value={formData.firstName || ""}
+        onChangeValue={(v) => setField("firstName", v)}
+        placeholder="Enter first name"
       />
       <LabeledInput
-        {...register("otherNames")}
         label="Other Names"
-        error={errors.otherNames?.message as string}
+        value={formData.otherNames || ""}
+        onChangeValue={(v) => setField("otherNames", v)}
+        placeholder="Enter other names"
       />
       <LabeledInput
-        {...register("email")}
-        type="email"
         label="Email"
-        error={errors.email?.message as string}
+        value={formData.email || ""}
+        onChangeValue={(v) => setField("email", v)}
+        placeholder="Enter email"
+        type="email"
       />
       <LabeledInput
-        {...register("password")}
-        type="password"
         label="Password"
-        error={errors.password?.message as string}
+        value={formData.password || ""}
+        onChangeValue={(v) => setField("password", v)}
+        placeholder="Enter password"
+        type="password"
       />
-    </>
+    </div>
   );
 }
+
+/*
+Design reasoning:
+- Uses the updated LabeledInput to normalize onChange events.
+- Prevents [object Object] being set in the store.
+- Each input updates zustand state directly and maintains progress tracking.
+
+Structure:
+- Single functional component for Step 0.
+- Five input fields: surname, firstName, otherNames, email, password.
+- Uses useAdmissionStore for state management.
+
+Implementation guidance:
+- Ensure all other step components follow the same onChangeValue pattern.
+- Drop-in replacement for the previous Step0UserInfo.tsx.
+- Maintains TypeScript type safety.
+
+Scalability insight:
+- Pattern can be reused across all multi-step forms.
+- Centralizing input normalization reduces bugs and ensures consistent UX.
+*/

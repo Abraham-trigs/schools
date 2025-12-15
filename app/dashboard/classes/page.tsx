@@ -38,6 +38,7 @@ export default function ClassesPage() {
     setSearch,
     fetchClassById,
     selectClass,
+    clearSelectedClass,
   } = useClassesStore();
 
   // -------------------------
@@ -75,6 +76,59 @@ export default function ClassesPage() {
   };
 
   const totalPages = Math.ceil(total / perPage);
+
+  // -------------------------
+  // Modal handlers
+  // -------------------------
+  const openEditModal = async (cls: ClassTableRow) => {
+    selectClass(cls); // populate store immediately
+    setEditOpen(true); // open modal
+    await fetchClassById(cls.id); // refresh relational data for modal
+  };
+
+  const openDeleteModal = (cls: ClassTableRow) => {
+    setDeleteTargetId(cls.id);
+    selectClass(cls);
+    setDeleteOpen(true);
+  };
+
+  const openStudentsModal = async (cls: ClassTableRow) => {
+    selectClass(cls);
+    setCurrentClass(cls);
+    setStudentsOpen(true);
+    await fetchClassById(cls.id);
+  };
+
+  // -------------------------
+  // Table row render
+  // -------------------------
+  const renderRows = () =>
+    classes.map((cls) => (
+      <tr key={cls.id} className="border-b hover:bg-gray-50">
+        <td className="px-4 py-2">{cls.name}</td>
+        <td className="px-4 py-2">{cls.students?.length || 0}</td>
+        <td className="px-4 py-2 flex gap-2">
+          <button
+            onClick={() => openEditModal(cls)}
+            className="px-2 py-1 rounded bg-yellow-400 text-white hover:bg-yellow-500"
+          >
+            Edit
+          </button>
+          <button
+            onClick={() => openDeleteModal(cls)}
+            className="px-2 py-1 rounded bg-red-600 text-white hover:bg-red-700"
+          >
+            Delete
+          </button>
+          <button
+            onClick={() => openStudentsModal(cls)}
+            className="px-3 py-1 bg-ford-primary text-white rounded hover:bg-ford-secondary"
+          >
+            Students
+          </button>
+        </td>
+      </tr>
+    ));
 
   return (
     <div className="p-6 space-y-6 mt-7">
@@ -133,45 +187,7 @@ export default function ClassesPage() {
                 <th className="px-4 py-2">Actions</th>
               </tr>
             </thead>
-            <tbody>
-              {classes.map((cls) => (
-                <tr key={cls.id} className="border-b hover:bg-gray-50">
-                  <td className="px-4 py-2">{cls.name}</td>
-                  <td className="px-4 py-2">{cls.students?.length || 0}</td>
-                  <td className="px-4 py-2 flex gap-2">
-                    <button
-                      onClick={async () => {
-                        await fetchClassById(cls.id);
-                        setEditOpen(true);
-                      }}
-                      className="px-2 py-1 rounded bg-yellow-400 text-white hover:bg-yellow-500"
-                    >
-                      Edit
-                    </button>
-                    <button
-                      onClick={() => {
-                        setDeleteTargetId(cls.id); // set immediately
-                        selectClass(cls); // populate store for modal
-                        setDeleteOpen(true);
-                      }}
-                      className="px-2 py-1 rounded bg-red-600 text-white hover:bg-red-700"
-                    >
-                      Delete
-                    </button>
-                    <button
-                      onClick={async () => {
-                        setCurrentClass(cls);
-                        setStudentsOpen(true);
-                        await fetchClassById(cls.id);
-                      }}
-                      className="px-3 py-1 bg-ford-primary text-white rounded hover:bg-ford-secondary"
-                    >
-                      Students
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
+            <tbody>{renderRows()}</tbody>
           </table>
 
           {/* Pagination */}
@@ -202,7 +218,7 @@ export default function ClassesPage() {
         <AddClassModal
           isOpen={addOpen}
           onClose={() => setAddOpen(false)}
-          onSuccess={() => fetchClasses()}
+          onSuccess={() => fetchClasses(page)}
         />
       )}
       {editOpen && selectedClass && (
@@ -210,24 +226,33 @@ export default function ClassesPage() {
           isOpen={editOpen}
           onClose={() => {
             setEditOpen(false);
+            clearSelectedClass?.();
           }}
-          onSuccess={() => fetchClasses()}
+          onSuccess={() => fetchClasses(page)}
         />
       )}
-      {deleteOpen && deleteTargetId && (
+      {deleteOpen && deleteTargetId && selectedClass && (
         <DeleteClassModal
           id={deleteTargetId}
           isOpen={deleteOpen}
-          onClose={() => setDeleteOpen(false)}
-          onSuccess={() => fetchClasses()}
+          onClose={() => {
+            setDeleteOpen(false);
+            clearSelectedClass?.();
+            setDeleteTargetId(null);
+          }}
+          onSuccess={() => fetchClasses(page)}
         />
       )}
-      {studentsOpen && currentClass && (
+      {studentsOpen && currentClass && selectedClass && (
         <StudentsModal
           classId={currentClass.id}
           className={currentClass.name}
           isOpen={studentsOpen}
-          onClose={() => setStudentsOpen(false)}
+          onClose={() => {
+            setStudentsOpen(false);
+            clearSelectedClass?.();
+            setCurrentClass(null);
+          }}
         />
       )}
 
@@ -239,6 +264,7 @@ export default function ClassesPage() {
           count: c.students?.length || 0,
         }))}
         onBarClick={async (cls) => {
+          selectClass(cls);
           setCurrentClass(cls);
           setStudentsOpen(true);
           await fetchClassById(cls.id);
@@ -247,27 +273,3 @@ export default function ClassesPage() {
     </div>
   );
 }
-
-/*
-Design reasoning:
-- Immediate assignment of deleteTargetId ensures modal renders without waiting for async fetch.
-- selectClass populates store to allow modal to access full class info if needed.
-- fetchClasses on onSuccess guarantees table, pagination, and total count remain consistent.
-
-Structure:
-- Header with search & Add button
-- Table with sortable columns and actions
-- Pagination controls
-- CRUD modals and Students modal
-- Chart component at bottom
-
-Implementation guidance:
-- Use store for all class state; local UI states control modals and search input.
-- Async fetchClassById ensures modal has up-to-date data.
-- Pagination buttons respect boundaries; search is debounced.
-
-Scalability insight:
-- Can handle hundreds of classes with pagination, search, and sorting.
-- Modals are isolated, reusable, and safe for optimistic updates.
-- Delete modal pattern can be extended for other entities (grades, students).
-*/

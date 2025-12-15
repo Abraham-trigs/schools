@@ -1,6 +1,3 @@
-// app/classes/components/DeleteClassModal.tsx
-// Purpose: Fully accessible, UX-safe modal to delete a class using useClassesStore with optimistic updates and error handling
-
 "use client";
 
 import { useState, useEffect, useRef } from "react";
@@ -19,15 +16,14 @@ export default function DeleteClassModal({
   onClose,
   onSuccess,
 }: DeleteClassModalProps) {
-  const deleteClass = useClassesStore((state) => state.deleteClass);
+  const { deleteClass, classes, clearSelectedClass } = useClassesStore();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Focus trap refs
   const modalRef = useRef<HTMLDivElement>(null);
   const firstButtonRef = useRef<HTMLButtonElement>(null);
 
-  // Reset error state when modal opens
+  // Reset error and focus first button when modal opens
   useEffect(() => {
     if (isOpen) {
       setError(null);
@@ -47,9 +43,22 @@ export default function DeleteClassModal({
   const handleDelete = async () => {
     setLoading(true);
     setError(null);
+
     try {
+      // Delete class via store
       await deleteClass(id);
-      onSuccess?.(); // refresh parent state
+
+      // Optimistically update classes array in store
+      useClassesStore.setState((state) => ({
+        classes: state.classes.filter((cls) => cls.id !== id),
+        selectedClass:
+          state.selectedClass?.id === id ? null : state.selectedClass,
+      }));
+
+      // Clear any selected class if it was deleted
+      clearSelectedClass();
+
+      onSuccess?.(); // parent can refresh table or pagination
       onClose(); // close modal
     } catch (err: any) {
       console.error("Delete failed:", err.message || err);
@@ -100,25 +109,3 @@ export default function DeleteClassModal({
     </div>
   );
 }
-
-/*
-Design reasoning:
-- Ensures UX safety with focus management and Escape key handling.
-- Uses store directly for deletion with optimistic state updates.
-- Error messages surfaced to user without breaking modal.
-
-Structure:
-- Modal container: fixed, full-screen backdrop.
-- Inner panel: accessible dialog, rounded, shadowed.
-- Buttons: Cancel and Delete with loading state.
-
-Implementation guidance:
-- Focus first button when modal opens.
-- Trap Escape key to allow closing.
-- Use onSuccess callback to refresh parent components.
-
-Scalability insight:
-- Can extend to handle multiple modal types by passing dynamic content.
-- Error handling pattern can be reused across other CRUD modals.
-- Integrates with store cache logic, no duplicate fetching needed.
-*/

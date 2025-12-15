@@ -15,13 +15,18 @@ export default function EditClassModal({
   onClose,
   onSuccess,
 }: EditClassModalProps) {
-  const { selectedClass, updateClass, loading, clearSelectedClass } =
-    useClassesStore();
+  const {
+    selectedClass,
+    updateClass,
+    loading,
+    clearSelectedClass,
+    setClassData,
+  } = useClassesStore();
 
   const [name, setName] = useState("");
   const [error, setError] = useState<string | null>(null);
 
-  // Sync input with store selection when modal opens
+  // Sync input with selected class when modal opens
   useEffect(() => {
     if (isOpen && selectedClass) {
       setName(selectedClass.name);
@@ -29,7 +34,7 @@ export default function EditClassModal({
     }
   }, [isOpen, selectedClass]);
 
-  // Cleanup on close
+  // Cleanup state when modal closes
   useEffect(() => {
     if (!isOpen) {
       setName("");
@@ -38,7 +43,6 @@ export default function EditClassModal({
     }
   }, [isOpen, clearSelectedClass]);
 
-  // Prevent rendering if modal not open or no class selected
   if (!isOpen || !selectedClass) return null;
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -46,13 +50,11 @@ export default function EditClassModal({
     setError(null);
 
     const trimmedName = name.trim();
-
     if (!trimmedName) {
       setError("Class name cannot be empty.");
       return;
     }
 
-    // Skip update if nothing changed
     if (trimmedName === selectedClass.name) {
       onClose();
       return;
@@ -61,7 +63,10 @@ export default function EditClassModal({
     try {
       const result = await updateClass(selectedClass.id, trimmedName);
 
-      if (result?.success) {
+      if (result?.success && result.data) {
+        // Immediately update store to reflect changes
+        setClassData(result.data);
+
         onSuccess?.();
         onClose();
       } else {

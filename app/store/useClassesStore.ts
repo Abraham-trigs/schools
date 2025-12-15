@@ -169,26 +169,46 @@ export const useClassesStore = create<ClassesStore>((set, get) => ({
     }
   },
 
+// ------------------ Mutations ------------------
 updateClass: async (id: string, name?: string) => {
   set({ loading: true });
   try {
     const res = await axios.put(`/api/classes/${id}`, { name });
-    set((state) => {
-      const updatedClasses = state.classes.map((c) =>
-        c.id === id ? { ...c, ...res.data } : c
-      );
-      const updatedSelected =
+    const updatedClass: Class & { students?: any[]; grades?: Grade[] } = res.data;
+
+    // Update classes list and selectedClass in one go
+    set((state) => ({
+      classes: state.classes.map((c) =>
+        c.id === id ? { ...c, ...updatedClass } : c
+      ),
+      selectedClass:
         state.selectedClass?.id === id
-          ? { ...state.selectedClass, ...res.data }
-          : state.selectedClass;
-      return { classes: updatedClasses, selectedClass: updatedSelected, loading: false };
-    });
-    return { success: true };
+          ? { ...state.selectedClass, ...updatedClass }
+          : state.selectedClass,
+      loading: false,
+      cache: {}, // invalidate cache to reflect latest data
+    }));
+
+    return { success: true, data: updatedClass };
   } catch (err: any) {
     const errorMessage = err.response?.data?.error || err.message || "Unknown error";
     set({ error: errorMessage, loading: false });
     return { success: false, error: errorMessage };
   }
+},
+
+// ------------------ Helper for all modals ------------------
+setClassData: (updatedClass: Class & { students?: any[]; grades?: Grade[] }) => {
+  set((state) => ({
+    classes: state.classes.map((c) =>
+      c.id === updatedClass.id ? { ...c, ...updatedClass } : c
+    ),
+    selectedClass:
+      state.selectedClass?.id === updatedClass.id
+        ? { ...state.selectedClass, ...updatedClass }
+        : state.selectedClass,
+    cache: {},
+  }));
 },
 
   deleteClass: async (id: string) => {

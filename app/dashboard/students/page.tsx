@@ -98,7 +98,8 @@ export default function StudentsPage() {
       {/* Header + Admission Modal */}
       <div className="flex justify-between items-center">
         <h1 className="text-xl font-bold">Students</h1>
-        <AdmissionFormModal /> {/* Directly opens multi-step form */}
+        {/* Pass loadStudents so modal triggers refresh on close */}
+        <AdmissionFormModal onStudentAdded={loadStudents} />
       </div>
 
       {/* Search */}

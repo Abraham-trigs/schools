@@ -6,14 +6,40 @@ import { Dialog, Transition } from "@headlessui/react";
 import { X } from "lucide-react";
 import MultiStepAdmissionForm from "@/app/admission/components/steps/MultiStepAdmissionForm";
 
-export default function AdmissionFormModal() {
+// ------------------------------------------------------------------------
+// Purpose:
+// - Modal to handle adding a new student using MultiStepAdmissionForm.
+// - Blurred background overlay with smooth transitions.
+// - Delegates student list refresh to parent via callback prop.
+// ------------------------------------------------------------------------
+
+interface AdmissionFormModalProps {
+  // Optional callback to trigger parent refresh of student list
+  onStudentAdded?: () => void;
+}
+
+export default function AdmissionFormModal({
+  onStudentAdded,
+}: AdmissionFormModalProps) {
   const [isOpen, setIsOpen] = useState(false);
 
+  // -------------------------
+  // Modal control
+  // -------------------------
   const openModal = () => setIsOpen(true);
-  const closeModal = () => setIsOpen(false);
+
+  const closeModal = () => {
+    setIsOpen(false);
+
+    // -------------------------
+    // Trigger parent update when modal closes
+    // -------------------------
+    if (onStudentAdded) onStudentAdded();
+  };
 
   return (
     <>
+      {/* Trigger Button */}
       <button
         onClick={openModal}
         className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
@@ -21,6 +47,7 @@ export default function AdmissionFormModal() {
         Add New Student
       </button>
 
+      {/* Modal with Transition */}
       <Transition appear show={isOpen} as={Fragment}>
         <Dialog as="div" className="relative z-50" onClose={closeModal}>
           {/* Background Overlay with blur */}
@@ -49,6 +76,7 @@ export default function AdmissionFormModal() {
                 leaveTo="opacity-0 scale-95"
               >
                 <Dialog.Panel className="relative w-full max-w-4xl bg-white rounded shadow-lg p-6">
+                  {/* Close Button */}
                   <button
                     onClick={closeModal}
                     className="absolute top-4 right-4 text-gray-500 hover:text-gray-700"
@@ -56,7 +84,11 @@ export default function AdmissionFormModal() {
                     <X size={20} />
                   </button>
 
-                  <MultiStepAdmissionForm onComplete={closeModal} />
+                  {/* Multi-Step Form */}
+                  <MultiStepAdmissionForm
+                    // The form itself doesn’t refresh store
+                    onComplete={closeModal}
+                  />
                 </Dialog.Panel>
               </Transition.Child>
             </div>
@@ -69,18 +101,17 @@ export default function AdmissionFormModal() {
 
 /* ------------------------------------------------------------------------
 Design reasoning:
-- Uses Tailwind backdrop-blur utilities to create a visually appealing blurred background.
-- Maintains modal focus and accessibility while reducing visual strain.
-
-Structure:
-- Transition.Child wraps overlay with opacity and blur animations.
-- Dialog.Panel contains modal content, unchanged from previous logic.
+- The modal focuses solely on form handling and UI transitions.
+- Delegates student list refresh to parent via `onStudentAdded` callback.
+- Backdrop blur and opacity enhance visual experience.
+- MultiStepAdmissionForm remains unchanged; the modal only closes it.
 
 Implementation guidance:
-- Adjust `backdrop-blur-sm` to `backdrop-blur-md` or `backdrop-blur-lg` for stronger effect.
-- Overlay color uses `bg-black/30` to combine opacity with blur.
+- Adjust `backdrop-blur` and opacity for desired effect.
+- `onStudentAdded` allows parent page to call store fetchStudents.
+- Keeps store logic out of modal, improving reusability.
 
 Scalability insight:
-- Easy to apply same overlay style across other modals for consistent UX.
-- Blur effect is GPU-accelerated and performant on modern browsers.
+- Can reuse modal across other forms while allowing parent to control state.
+- Ensures reactive UI updates on modal close without modifying store internally.
 ------------------------------------------------------------------------ */

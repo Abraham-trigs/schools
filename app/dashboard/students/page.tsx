@@ -1,12 +1,13 @@
+// app/students/page.tsx
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { Loader2 } from "lucide-react";
-import AddStudentModal from "./components/AddStudentModal";
 import AssignClassGradeButton from "./components/AssignClassGradeButton";
 import { useStudentStore, StudentListItem } from "@/app/store/useStudentStore";
 import { useClassesStore } from "@/app/store/useClassesStore";
+import AdmissionFormModal from "./components/AdmissionFormModal";
 
 export default function StudentsPage() {
   const router = useRouter();
@@ -48,7 +49,7 @@ export default function StudentsPage() {
 
   useEffect(() => {
     loadStudents();
-    fetchClasses(); // Ensure classes (and grades) are loaded for the page
+    fetchClasses();
   }, [loadStudents, fetchClasses]);
 
   // ------------------ Search ------------------
@@ -94,9 +95,10 @@ export default function StudentsPage() {
 
   return (
     <div className="p-4 space-y-4">
+      {/* Header + Admission Modal */}
       <div className="flex justify-between items-center">
         <h1 className="text-xl font-bold">Students</h1>
-        <AddStudentModal />
+        <AdmissionFormModal /> {/* Directly opens multi-step form */}
       </div>
 
       {/* Search */}

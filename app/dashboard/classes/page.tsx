@@ -10,6 +10,7 @@ import EditClassModal from "./components/EditClassModal";
 import DeleteClassModal from "./components/DeleteClassModal";
 import StudentsModal from "./components/StudentsModal";
 import StudentsPerClassChart from "./components/StudentsPerClassChart";
+import SkuunAiChat from "../SkuunAi/components/SkuunAiChat.tsx";
 
 // -------------------------
 // Types

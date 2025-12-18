@@ -7,6 +7,12 @@ generator client {
   provider = "prisma-client-js"
 }
 
+enum DecisionStatus {
+  PROPOSED
+  IMPLEMENTED
+  SUPERSEDED
+}
+
 enum Role {
   ADMIN
   MODERATOR
@@ -802,3 +808,24 @@ model SkuunAiRecommendation {
   createdAt DateTime       @default(now())
   updatedAt DateTime       @updatedAt
 }
+
+
+model DecisionRecord {
+  id            String   @id @default(cuid())
+  title         String
+  context       String
+  decision      String
+  consequences  String
+  status        DecisionStatus @default(PROPOSED)
+
+  supersedesId  String?
+  supersedes    DecisionRecord? @relation("Supersedes", fields: [supersedesId], references: [id])
+  supersededBy  DecisionRecord[] @relation("Supersedes")
+
+  authorId      String
+  createdAt     DateTime @default(now())
+  implementedAt DateTime?
+
+  @@index([status])
+}
+

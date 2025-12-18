@@ -50,9 +50,10 @@ async function generateAIResponse(userMessage: string, sessionId: string): Promi
       max_tokens: 300,
     });
 
-    const aiText = completion.choices[0]?.message?.content?.trim() || "Sorry, I couldn't respond.";
+     const aiText = completion.choices[0]?.message?.content?.trim() || "Sorry, I couldn't respond.";
 
-    // Standard AI message
+
+ // Standard AI message
     messages.push({ type: "AI", sender: "AI", content: aiText });
 
     // Optional: randomly ask a QUESTION
@@ -71,8 +72,7 @@ async function generateAIResponse(userMessage: string, sessionId: string): Promi
         actionType: "SUBMIT_CV",
         actionPayload: { content: cvContent },
       });
-    }
-  } catch (err) {
+    }  } catch (err) {
     messages.push({ type: "AI", sender: "AI", content: "AI failed to respond. Please try again." });
   }
 

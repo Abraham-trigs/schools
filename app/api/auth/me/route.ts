@@ -1,7 +1,4 @@
 // app/api/auth/me/route.ts
-// Purpose: Return authenticated user profile with minimal role info, preloaded school, and optional department
-// Production-ready: Uses SchoolAccount to avoid redundant DB queries, fully school-scoped
-
 import { NextResponse } from "next/server";
 import { SchoolAccount } from "@/lib/schoolAccount.ts";
 import { inferRoleFromPosition, inferDepartmentFromPosition } from "@/lib/api/constants/roleInference";

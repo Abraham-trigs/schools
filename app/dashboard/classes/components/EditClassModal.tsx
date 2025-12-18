@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import clsx from "clsx";
-import { useClassesStore } from "@/app/store/useClassesStore";
+import { useClassesStore } from "@/app/store/useClassesStore.ts";
 
 interface EditClassModalProps {
   isOpen: boolean;

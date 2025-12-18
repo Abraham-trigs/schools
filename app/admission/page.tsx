@@ -15,7 +15,7 @@ const MultiStepAdmissionForm = dynamic(
 export default function AdmissionPage() {
   return (
     <AuthGuard redirectOnFail>
-      <main className="min-h-screen bg-gray-50 py-10">
+      <main className="min-h-screen py-10">
         <div className="max-w-5xl mx-auto px-4">
           <h1 className="text-3xl font-bold mb-8 text-center">
             Student Admission

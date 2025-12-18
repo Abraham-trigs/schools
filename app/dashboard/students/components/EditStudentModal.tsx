@@ -4,8 +4,8 @@ import React, { useEffect, useState } from "react";
 import { useForm, SubmitHandler } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { useStudentStore, StudentDetail } from "@/app/store/useStudentStore";
-import { useClassesStore } from "@/app/store/useClassesStore";
+import { useStudentStore, StudentDetail } from "@/app/store/useStudentStore.ts";
+import { useClassesStore } from "@/app/store/useClassesStore.ts";
 import { toast } from "sonner";
 import ConfirmDeleteModal from "@/app/dashboard/students/components/ConfirmDeleteModal.tsx"; // ✅ Import reusable modal
 

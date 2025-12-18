@@ -4,8 +4,8 @@
 // ==========================================================
 
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/db";
-import { SchoolAccount } from "@/lib/schoolAccount";
+import { prisma } from "@/lib/db.ts";
+import { SchoolAccount } from "@/lib/schoolAccount.ts";
 import { z } from "zod";
 
 // ------------------ Authorization ------------------

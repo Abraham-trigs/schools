@@ -3,9 +3,9 @@
 
 import React, { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import EditStaffModal from "./components/EditStaffModal";
-import ConfirmDeleteModal from "./components/ConfirmDeleteModal";
-import { useStaffStore, Staff } from "@/app/store/useStaffStore";
+import EditStaffModal from "./components/EditStaffModal.tsx";
+import ConfirmDeleteModal from "./components/ConfirmDeleteModal.tsx";
+import { useStaffStore, Staff } from "@/app/store/useStaffStore.ts";
 import StaffProfileForm from "../staff/components/StaffProfileForm.tsx";
 
 export default function StaffPage() {

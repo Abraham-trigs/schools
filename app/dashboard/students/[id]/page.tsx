@@ -3,9 +3,9 @@
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { Loader2, ArrowLeft, Edit, Trash2 } from "lucide-react";
-import { useStudentStore, StudentDetail } from "@/app/store/useStudentStore";
+import { useStudentStore, StudentDetail } from "@/app/store/useStudentStore.ts";
 import ConfirmDeleteModal from "@/app/dashboard/students/components/ConfirmDeleteModal.tsx";
-import EditStudentModal from "../components/EditStudentModal";
+import EditStudentModal from "../components/EditStudentModal.tsx";
 
 const AttendancesStatus = {
   PRESENT: "PRESENT",

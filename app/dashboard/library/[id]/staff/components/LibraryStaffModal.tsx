@@ -1,7 +1,7 @@
 // app/(library)/staff/LibraryStaffModal.tsx
 "use client";
 import { useState, useEffect } from "react";
-import { useLibraryStaffStore } from "@/store/useLibraryStaffStore";
+import { useLibraryStaffStore } from "@/app/store/useLibraryStaffStore.ts";
 
 interface Props {
   staff: any;

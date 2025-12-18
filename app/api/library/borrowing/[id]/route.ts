@@ -1,8 +1,8 @@
 // app/api/library/borrowing/[id]/route.ts
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { prisma } from "@/lib/db.ts";
 import { z } from "zod";
-import { SchoolAccount } from "@/lib/schoolAccount";
+import { SchoolAccount } from "@/lib/schoolAccount.ts";
 
 const updateSchema = z.object({ returned: z.boolean().optional() });
 

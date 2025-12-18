@@ -3,8 +3,8 @@
 // Production-ready: Fully uses SchoolAccount to ensure accurate role/school, avoids redundant queries
 
 import { NextRequest, NextResponse } from "next/server";
-import { signJwt } from "@/lib/jwt";
-import { COOKIE_NAME, COOKIE_OPTIONS } from "@/lib/cookies";
+import { signJwt } from "@/lib/jwt.ts";
+import { COOKIE_NAME, COOKIE_OPTIONS } from "@/lib/cookies.ts";
 import { SchoolAccount } from "@/lib/schoolAccount.ts";
 
 export async function POST(req: NextRequest) {

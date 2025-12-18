@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/db";
+import { prisma } from "@/lib/db.ts";
 import { z } from "zod";
-import { SchoolAccount } from "@/lib/schoolAccount";
+import { SchoolAccount } from "@/lib/schoolAccount.ts";
 import { Role } from "@prisma/client";
 
 // Zod schema for updating exams

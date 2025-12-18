@@ -5,7 +5,7 @@
 
 import { create } from "zustand";
 import { debounce } from "lodash";
-import { apiClient } from "@/lib/apiClient";
+import { apiClient } from "@/lib/apiClient.ts";
 
 export interface Author { id: string; name: string; bio?: string }
 export interface Category { id: string; name: string }

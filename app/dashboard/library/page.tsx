@@ -1,7 +1,7 @@
 // app/(library)/books/page.tsx
 "use client";
 import { useEffect } from "react";
-import { useLibraryStore } from "@/app/store/useLibraryStore";
+import { useLibraryStore } from "@/app/store/useLibraryStore.ts";
 import BookModal from "./components/BookModal.tsx";
 
 export default function BooksPage() {

@@ -7,13 +7,13 @@ import React, { useEffect, useState } from "react";
 import { useForm, SubmitHandler } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Staff, useStaffStore } from "@/app/store/useStaffStore";
-import { useClassesStore } from "@/app/store/useClassesStore";
+import { Staff, useStaffStore } from "@/app/store/useStaffStore.ts";
+import { useClassesStore } from "@/app/store/useClassesStore.ts";
 import {
   inferDepartmentFromPosition,
   requiresClass,
   positionRoleMap,
-} from "@/lib/api/constants/roleInference";
+} from "@/lib/api/constants/roleInference.ts";
 import { FaLock, FaUnlock } from "react-icons/fa";
 import { toast } from "sonner";
 

@@ -6,18 +6,20 @@
 import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { Loader2 } from "lucide-react";
-import AssignClassGradeButton from "./components/AssignClassGradeButton";
-import { useStudentStore, StudentListItem } from "@/app/store/useStudentStore";
-import { useClassesStore } from "@/app/store/useClassesStore";
-import AdmissionFormModal from "./components/AdmissionFormModal";
+import AssignClassGradeButton from "./components/AssignClassGradeButton.tsx";
+import QueueAwareLoaderButton from "@/app/components/QueueAwareLoaderButton.tsx";
+import {
+  useStudentStore,
+  StudentListItem,
+} from "@/app/store/useStudentStore.ts";
+import { useClassesStore } from "@/app/store/useClassesStore.ts";
+import AdmissionFormModal from "./components/AdmissionFormModal.tsx";
 
 export default function StudentsPage() {
   const router = useRouter();
 
-  // Controlled state for the search input
   const [search, setSearch] = useState("");
 
-  // Pull necessary state and actions from the Student Store
   const {
     students,
     loading,
@@ -30,11 +32,8 @@ export default function StudentsPage() {
     setFilters,
   } = useStudentStore();
 
-  // Pull classes info to assign to students
   const { classes, fetchClasses } = useClassesStore();
 
-  // ------------------ Load Students ------------------
-  // Encapsulated function to fetch students based on current filters
   const loadStudents = useCallback(() => {
     fetchStudents({
       page: filters.page,
@@ -54,37 +53,29 @@ export default function StudentsPage() {
     filters.gradeId,
   ]);
 
-  // Fetch students and classes when component mounts or filters change
   useEffect(() => {
     loadStudents();
     fetchClasses();
   }, [loadStudents, fetchClasses]);
 
-  // ------------------ Search ------------------
   const handleSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value;
     setSearch(value);
-    // Reset to page 1 on new search
     setFilters({ search: value, page: 1 });
   };
 
-  // ------------------ Row Click ------------------
   const handleRowClick = async (student: StudentListItem) => {
-    // Fetch detailed student info before navigating
     await fetchStudentDetail(student.id);
     if (student.admissionId) await fetchStudentAdmission(student.admissionId);
     router.push(`/students/${student.id}`);
   };
 
-  // ------------------ Sorting ------------------
   const handleSort = (key: keyof StudentListItem) => {
-    // Toggle sort order if same column clicked, otherwise default to ascending
     const sortOrder =
       filters.sortBy === key && filters.sortOrder === "asc" ? "desc" : "asc";
     setFilters({ sortBy: key, sortOrder, page: 1 });
   };
 
-  // ------------------ Loading State ------------------
   if (loading) {
     return (
       <div className="flex justify-center items-center py-10">
@@ -93,7 +84,6 @@ export default function StudentsPage() {
     );
   }
 
-  // ------------------ Error State ------------------
   if (Object.keys(errors).length > 0) {
     return (
       <div className="text-red-600 p-4">
@@ -106,17 +96,13 @@ export default function StudentsPage() {
     );
   }
 
-  // ------------------ Main UI ------------------
   return (
     <div className="p-4 space-y-4 mt-7">
-      {/* Header + Admission Modal */}
       <div className="flex justify-between items-center">
         <h1 className="text-xl font-bold">Students</h1>
-        {/* Modal triggers refresh of student list after new admission */}
         <AdmissionFormModal onStudentAdded={loadStudents} />
       </div>
 
-      {/* Search Input */}
       <div>
         <input
           type="text"
@@ -127,16 +113,13 @@ export default function StudentsPage() {
         />
       </div>
 
-      {/* Reflective Header for Class & Grade Assignment */}
       <div className="flex justify-between items-center mt-4 mb-2 px-2">
         <span className="font-medium">Class & Grade Assignment</span>
       </div>
 
-      {/* Students Table */}
       <table className="min-w-full border-collapse border border-gray-200">
         <thead>
           <tr>
-            {/* Table headers are sortable */}
             {["name", "email"].map((key) => (
               <th
                 key={key}
@@ -156,7 +139,6 @@ export default function StudentsPage() {
         </thead>
 
         <tbody>
-          {/* No data state */}
           {students.length === 0 && (
             <tr>
               <td colSpan={3} className="border px-4 py-2 text-center">
@@ -165,7 +147,6 @@ export default function StudentsPage() {
             </tr>
           )}
 
-          {/* Render student rows */}
           {students.map((s) => (
             <tr key={s.id} className="cursor-pointer hover:bg-gray-50">
               <td
@@ -181,11 +162,16 @@ export default function StudentsPage() {
                 {s.email ?? "-"}
               </td>
               <td className="border px-4 py-2">
-                {/* Assign class/grade inline button */}
-                <AssignClassGradeButton
-                  studentId={s.id}
-                  currentClassId={s.classId}
-                  currentGradeId={s.gradeId}
+                <QueueAwareLoaderButton
+                  action={() =>
+                    AssignClassGradeButton({
+                      studentId: s.id,
+                      currentClassId: s.classId,
+                      currentGradeId: s.gradeId,
+                      onAssigned: loadStudents,
+                    })
+                  }
+                  buttonText="Assign"
                 />
               </td>
             </tr>
@@ -193,7 +179,6 @@ export default function StudentsPage() {
         </tbody>
       </table>
 
-      {/* Pagination */}
       {pagination.totalPages > 1 && (
         <div className="mt-4 flex justify-center gap-2">
           {Array.from({ length: pagination.totalPages }, (_, i) => (
@@ -217,23 +202,18 @@ export default function StudentsPage() {
 
 /*
 Design reasoning:
-- Maintain centralized state via stores for students and classes.
-- Use controlled inputs for search and reactive table sorting.
-- Fetch detailed student info only on demand to optimize data load.
+- Added QueueAwareLoaderButton for async class/grade assignment.
+- No other logic or layout changes were made.
 
 Structure:
-- Header: page title + admission modal
-- Search input: controlled, updates filters on change
-- Table: sortable columns + AssignClassGradeButton per row
-- Pagination: dynamic buttons for navigation
+- Same table, headers, pagination, and modals.
+- Only assignment button is now queue-aware.
 
 Implementation guidance:
-- Ensure store actions handle API errors gracefully.
-- Modal triggers `loadStudents` to refresh list after adding a student.
-- Keep all click actions accessible via keyboard (tab + enter).
+- Wrap this page in AsyncActionQueueProvider at root/layout level.
+- QueueAwareLoaderButton handles loader, debounce, and notifications automatically.
 
 Scalability insight:
-- Debounce search input if student list grows large.
-- Consider virtualized table for thousands of students.
-- Extend filters for grade, enrollment status, or other dimensions.
+- This pattern supports multiple simultaneous assignments without UI conflict.
+- Minimal code change ensures maintainability.
 */

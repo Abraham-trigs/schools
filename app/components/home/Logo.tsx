@@ -2,6 +2,7 @@
 
 import Image from "next/image";
 import { motion } from "framer-motion";
+import Link from "next/link";
 
 export default function Logo() {
   return (
@@ -37,8 +38,13 @@ export default function Logo() {
 
         {/* Buttons below the logo */}
         <div className="mt-2 sm:mt-4 md:mt-6 lg:mt-6 flex flex-row gap-4 justify-center items-center">
-          <button className="bg-[var(--ford-secondary)] border border-[var(--ford-secondary)] text-[var(--typo)] hover:bg-[#e6bb00] hover:text-[var(--typo)] px-6 py-3 rounded-lg font-medium transition">
-            Enroll Now
+          <button>
+            <Link
+              href="/admission"
+              className="bg-[var(--ford-secondary)] border border-[var(--ford-secondary)] text-[var(--typo)] hover:bg-[#e6bb00] hover:text-[var(--typo)] px-6 py-3 rounded-lg font-medium transition"
+            >
+              Enroll Now
+            </Link>
           </button>
           <button className="bg-[#ddd46d] hover:bg-[var(--neutral-dark)] text-[var(--typo)] px-6 py-3 rounded-lg font-medium transition">
             Learn More

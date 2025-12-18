@@ -2,8 +2,9 @@
 // Purpose: GET, POST attendance records for a class
 
 import { NextRequest, NextResponse } from "next/server";
-import { prisma, Role } from "@/lib/db";
-import { SchoolAccount } from "@/lib/schoolAccount";
+import { prisma } from "@/lib/db.ts";
+import { Role } from "@prisma/client";
+import { SchoolAccount } from "@/lib/schoolAccount.ts";
 import { z } from "zod";
 
 const attendanceSchema = z.object({

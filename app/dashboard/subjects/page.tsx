@@ -6,9 +6,9 @@
 import React, { useEffect, useState } from "react";
 import { Loader2, Plus } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useSubjectStore } from "@/app/store/subjectStore";
-import { useClassesStore } from "@/app/store/useClassesStore";
-import { useStaffStore } from "@/app/store/useStaffStore";
+import { useSubjectStore } from "@/app/store/subjectStore.ts";
+import { useClassesStore } from "@/app/store/useClassesStore.ts";
+import { useStaffStore } from "@/app/store/useStaffStore.ts";
 import AddSubjectModal from "./components/AddsubjectModal.tsx";
 import EditSubjectModal from "./components/EditSubjectModal.tsx";
 import ConfirmDeleteModal from "./components/ConfirmDeleteModal.tsx";

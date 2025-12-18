@@ -2,8 +2,8 @@
 
 import React, { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { StudentDetail, useStudentStore } from "@/app/store/useStudentStore";
-import { notify } from "@/lib/helpers/notifications";
+import { StudentDetail, useStudentStore } from "@/app/store/useStudentStore.ts";
+import { notify } from "@/lib/helpers/notifications.ts";
 
 interface ConfirmDeleteModalProps {
   isOpen: boolean;

@@ -1,6 +1,6 @@
 // /app/astire/api/chat/route.ts
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { prisma } from "@/lib/db.ts";
 import { z } from "zod";
 
 const ChatRequestSchema = z.object({

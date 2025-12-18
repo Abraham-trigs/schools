@@ -3,16 +3,16 @@
 import { motion } from "framer-motion";
 import { useInView, AnimatePresence } from "framer-motion";
 import { useState, useEffect, useRef } from "react";
-import Navbar from "@/app/components/home/NavBar";
-import ScrollingCards from "@/app/components/home/ScrollingCards";
-import Logo from "./components/home/Logo";
+import Navbar from "@/app/components/home/NavBar.tsx";
+import ScrollingCards from "@/app/components/home/ScrollingCards.tsx";
+import Logo from "./components/home/Logo.tsx";
 import Image from "next/image";
 import CareerAndClassSection from "./components/home/CareerAndClassSection.tsx";
 import InspiringLeadersSection from "./components/home/InspiringLeadersSection.tsx";
 import QualitiesSection from "./components/home/QualitiesSection.tsx";
 import ProprietorSection from "./components/home/ProprietorSection.tsx";
 import SchoolStaffSection from "./components/home/SchoolStaffSection.tsx";
-import GalleryPage from "./components/gallery/GalleryPage";
+import GalleryPage from "./components/gallery/GalleryPage.tsx";
 import AboutSection from "./components/about/AboutSection.tsx";
 import ContactSection from "./components/home/ContactSection.tsx";
 

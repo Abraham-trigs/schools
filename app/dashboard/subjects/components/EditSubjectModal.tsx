@@ -5,7 +5,7 @@ import React, { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
-import { useSubjectStore } from "@/app/store/subjectStore";
+import { useSubjectStore } from "@/app/store/subjectStore.ts";
 
 // ------------------------- Schema -------------------------
 const editSubjectSchema = z.object({

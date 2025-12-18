@@ -1,19 +1,28 @@
+// app/students/components/AssignClassGradeButton.tsx
 "use client";
 
 import { useState, useEffect } from "react";
-import { useClassesStore } from "@/app/store/useClassesStore";
-import { useAdmissionStore } from "@/app/store/admissionStore";
+import { useClassesStore } from "@/app/store/useClassesStore.ts";
+import { useAdmissionStore } from "@/app/store/admissionStore.ts";
 
 interface AssignClassGradeButtonProps {
   studentId: string;
   currentClassId?: string;
   currentGradeId?: string;
+  onAssigned?: () => void; // Callback to refresh page/store after assignment
 }
 
+// ------------------------------------------------------------------------
+// Purpose:
+// - Assign a class and grade to a student using the admission store logic.
+// - Updates progress automatically without duplicating logic.
+// - Calls optional onAssigned callback for immediate UI refresh.
+// ------------------------------------------------------------------------
 export default function AssignClassGradeButton({
   studentId,
   currentClassId,
   currentGradeId,
+  onAssigned,
 }: AssignClassGradeButtonProps) {
   const { classes, fetchClasses } = useClassesStore();
   const { setClass, selectGrade } = useAdmissionStore();
@@ -45,16 +54,26 @@ export default function AssignClassGradeButton({
     setSelectedGrade(available?.id || "");
   }, [selectedClass, classes]);
 
-  // Assign class & grade for this student only
-  const handleAssign = () => {
+  // -------------------------
+  // Assign class & grade to student
+  // -------------------------
+  const handleAssign = async () => {
     if (!selectedClass || !selectedGrade) return;
-    setClass(selectedClass, gradesForClass); // store updates formData
+
+    // Use admission store logic to set class and grade (updates progress internally)
+    setClass(selectedClass, gradesForClass);
     selectGrade(selectedGrade, gradesForClass);
+
+    // Optional: refresh parent table/store after assignment
+    if (onAssigned) await onAssigned();
+
+    // Close modal
     setOpen(false);
   };
 
   return (
     <>
+      {/* Trigger Button */}
       <button
         className="px-2 py-1 bg-blue-500 text-white rounded hover:bg-blue-600 text-sm"
         onClick={() => setOpen(true)}
@@ -62,12 +81,13 @@ export default function AssignClassGradeButton({
         Assign Class & Grade
       </button>
 
+      {/* Modal */}
       {open && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 px-4">
           <div className="bg-white p-6 rounded shadow-md w-full max-w-md max-h-[90vh] overflow-y-auto">
             <h2 className="text-lg font-semibold mb-4">Assign Class & Grade</h2>
 
-            {/* Class */}
+            {/* Class Selection */}
             <div className="mb-4">
               <label className="block mb-1 font-medium">Class</label>
               <select
@@ -84,7 +104,7 @@ export default function AssignClassGradeButton({
               </select>
             </div>
 
-            {/* Grade */}
+            {/* Grade Selection */}
             <div className="mb-4">
               <label className="block mb-1 font-medium">Grade</label>
               <select
@@ -102,7 +122,7 @@ export default function AssignClassGradeButton({
               </select>
             </div>
 
-            {/* Buttons */}
+            {/* Action Buttons */}
             <div className="flex justify-end gap-2 mt-4">
               <button
                 className="px-3 py-1 border rounded hover:bg-gray-100"
@@ -124,3 +144,11 @@ export default function AssignClassGradeButton({
     </>
   );
 }
+
+/* ------------------------------------------------------------------------
+Design reasoning:
+- Reuses existing admission store logic to maintain progress calculation consistency.
+- Modal opens inline and handles its own state.
+- Optional `onAssigned` prop allows parent page to refresh student table after assignment.
+- Prevents assigning a class without both class and grade selected.
+------------------------------------------------------------------------ */

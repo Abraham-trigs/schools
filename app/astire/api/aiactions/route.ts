@@ -2,7 +2,7 @@
 // Purpose: List and create AI Actions performed in sessions
 
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma.ts";
+import { prisma } from "@/lib/db.ts";
 import { z } from "zod";
 
 const currentAbrahamId = "hardcoded-abraham-id";

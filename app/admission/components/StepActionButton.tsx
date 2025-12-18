@@ -21,16 +21,17 @@ export default function StepActionButton({
   sizeClass = "px-4 py-2",
   className = "",
 }: StepActionButtonProps) {
-  const { loading, completeStep } = useAdmissionStore();
+  const loading = useAdmissionStore((state) => state.loading);
+  const completeStep = useAdmissionStore((state) => state.completeStep);
   const [clicked, setClicked] = useState(false);
 
   const handleClick = async () => {
-    if (loading || clicked) return;
+    if (loading || clicked || !completeStep) return;
     setClicked(true);
 
     try {
-      await useAdmissionStore.getState().completeStep(currentStep);
-      if (onStepComplete) onStepComplete();
+      await completeStep(currentStep);
+      onStepComplete?.();
     } catch (err) {
       console.error(`${label} step action failed:`, err);
     } finally {

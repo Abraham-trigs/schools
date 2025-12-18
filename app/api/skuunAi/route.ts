@@ -5,7 +5,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db.ts";
 import { SchoolAccount } from "@/lib/schoolAccount.ts";
 import { z } from "zod";
-import type { AIActionType } from "@/lib/skuunAiTypes.ts";
+import type { AIActionType } from "@/lib/types/skuunAiTypes.ts";
 import { determineAutoActions, triggerAutoActions } from "@/lib/skuunAiAutoActions.ts";
 
 // -------------------- Zod Schemas --------------------

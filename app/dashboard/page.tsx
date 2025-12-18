@@ -1,11 +1,11 @@
-import SummaryCard from "./components/SummaryCard";
-import ChartCard from "./components/ChartCard";
-import RecentActivity from "./components/RecentActivity";
+import SummaryCard from "./components/SummaryCard.tsx";
+import ChartCard from "./components/ChartCard.tsx";
+import RecentActivity from "./components/RecentActivity.tsx";
 import { prisma } from "@/lib/db";
 
 // Client Components
-import StudentsPerClassChart from "./components/StudentsPerClassChart";
-import AttendanceTrendChart from "./components/AttendanceTrendChart";
+import StudentsPerClassChart from "./components/StudentsPerClassChart.tsx";
+import AttendanceTrendChart from "./components/AttendanceTrendChart.tsx";
 
 export default async function DashboardPage() {
   const students = await prisma.user.count({ where: { role: "STUDENT" } });

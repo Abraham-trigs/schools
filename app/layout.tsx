@@ -1,15 +1,20 @@
 // app/layout.tsx
-// Purpose: Global site layout with glass background, footer, scroll helper, notifications, and optional auth guard.
+// Purpose: Global site layout with glass background, footer, scroll helper, notifications, global async queue, and optional auth guard.
 
 import "./globals.css";
 import { ReactNode } from "react";
 import { Inter } from "next/font/google";
 import { Toaster } from "sonner";
 
-import AppBackground from "./components/AppBackground";
-import FooterWrapper from "@/app/components/home/FooterWrapper";
-import BackToTop from "./components/home/BackToTop";
-import AuthGuard from "@/app/components/AuthGuard";
+import AppBackground from "./components/AppBackground.tsx";
+import FooterWrapper from "@/app/components/home/FooterWrapper.tsx";
+import BackToTop from "./components/home/BackToTop.tsx";
+import AuthGuard from "@/app/components/AuthGuard.tsx";
+
+import {
+  AsyncActionQueueProvider,
+  GlobalActionProgress,
+} from "@/context/AsyncActionQueueProvider";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -30,17 +35,23 @@ export default function RootLayout({
 }: RootLayoutProps) {
   const content = (
     <>
-      {/* Main content with glass-like background */}
-      <AppBackground>{children}</AppBackground>
+      {/* Wrap children in AsyncActionQueueProvider to enable global loader */}
+      <AsyncActionQueueProvider>
+        {/* Optional: global loading progress bar */}
+        <GlobalActionProgress />
 
-      {/* Footer */}
-      <FooterWrapper />
+        {/* Main content with glass-like background */}
+        <AppBackground>{children}</AppBackground>
 
-      {/* Scroll helper */}
-      <BackToTop />
+        {/* Footer */}
+        <FooterWrapper />
 
-      {/* Global notifications */}
-      <Toaster position="top-right" richColors closeButton duration={4000} />
+        {/* Scroll helper */}
+        <BackToTop />
+
+        {/* Global notifications */}
+        <Toaster position="top-right" richColors closeButton duration={4000} />
+      </AsyncActionQueueProvider>
     </>
   );
 
@@ -55,3 +66,24 @@ export default function RootLayout({
     </html>
   );
 }
+
+/*
+Design reasoning:
+- Wrap entire layout in AsyncActionQueueProvider to ensure any component using QueueAwareLoaderButton or runAsync has access to global loader context.
+- GlobalActionProgress provides combined skeleton/progress UI across the app.
+- Toaster remains at top-level to show notifications triggered from stores or components.
+
+Structure:
+- AsyncActionQueueProvider wraps all children content
+- AppBackground, Footer, BackToTop, and Toaster remain inside provider
+- AuthGuard conditional wrapping retained
+
+Implementation guidance:
+- Any page/component using QueueAwareLoaderButton or runAsync automatically benefits from global loading, skeletons, and notifications.
+- Provider at root avoids repeating wrappers on individual pages.
+
+Scalability insight:
+- Centralized async queue supports multiple concurrent actions app-wide.
+- Global progress bar ensures consistent UX.
+- Adding additional global providers (theme, error boundary) can coexist inside this layout.
+*/

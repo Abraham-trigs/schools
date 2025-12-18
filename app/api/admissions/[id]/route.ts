@@ -2,10 +2,10 @@
 // Purpose: Handle fetch, step-by-step updates, and deletion of an admission application
 
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/db";
+import { prisma } from "@/lib/db.ts";
 import { z } from "zod";
-import { SchoolAccount } from "@/lib/schoolAccount";
-import { StepSchemas, calculateProgress } from "@/lib/helpers/admission";
+import { SchoolAccount } from "@/lib/schoolAccount.ts";
+import { StepSchemas, calculateProgress } from "@/lib/helpers/admission.ts";
 
 /* -------------------------------------------------------------------------- */
 /*                                GET /:id                                    */

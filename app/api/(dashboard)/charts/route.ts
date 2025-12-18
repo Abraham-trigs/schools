@@ -2,7 +2,7 @@
 // Provides class student counts and recent attendance trends
 
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/db";
+import { prisma } from "@/lib/db.ts";
 import { z } from "zod";
 
 // Helper: parse Date to YYYY-MM-DD string

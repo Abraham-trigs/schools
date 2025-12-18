@@ -2,7 +2,7 @@
 // Purpose: Get, update, delete a single Goal
 
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { prisma } from "@/lib/db.ts";
 import { z } from "zod";
 
 const currentAbrahamId = "hardcoded-abraham-id";

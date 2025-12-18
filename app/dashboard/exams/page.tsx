@@ -2,8 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { Loader2, Plus } from "lucide-react";
-import ExamsFormModal from "./components/ExamsFormModal";
-import ConfirmDeleteExamModal from "./components/ConfirmDeleteExamModal";
+import ExamsFormModal from "./components/ExamsFormModal.tsx";
+import ConfirmDeleteExamModal from "./components/ConfirmDeleteExamModal.tsx";
 import { useExamStore, Exam } from "@/app/store/examsStore.ts"; // make sure Exam type exists
 
 export default function ExamsPage() {

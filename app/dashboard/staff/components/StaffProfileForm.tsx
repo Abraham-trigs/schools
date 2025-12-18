@@ -7,9 +7,9 @@ import {
   inferDepartmentFromPosition,
   requiresClass,
   inferRoleFromPosition,
-} from "@/lib/api/constants/roleInference";
-import { useUserStore } from "@/app/store/useUserStore";
-import { useStaffStore } from "@/app/store/useStaffStore";
+} from "@/lib/api/constants/roleInference.ts";
+import { useUserStore } from "@/app/store/useUserStore.ts";
+import { useStaffStore } from "@/app/store/useStaffStore.ts";
 
 interface UserFormData {
   id?: string;

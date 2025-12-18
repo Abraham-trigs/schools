@@ -1,8 +1,8 @@
 // app/(library)/staff/page.tsx
 "use client";
 import { useEffect } from "react";
-import { useLibraryStaffStore } from "@/store/useLibraryStaffStore";
-import LibraryStaffModal from "./LibraryStaffModal";
+import { useLibraryStaffStore } from "@/app/store/useLibraryStaffStore.ts";
+import LibraryStaffModal from "../staff/components/LibraryStaffModal.tsx";
 
 export default function LibraryStaffPage() {
   const {

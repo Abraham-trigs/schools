@@ -2,7 +2,7 @@
 // Purpose: Stream GPT responses with structured ACTION/QUESTION messages, persisting incrementally in Prisma.
 
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { prisma } from "@/lib/db.ts";
 import { z } from "zod";
 import OpenAI from "openai";
 

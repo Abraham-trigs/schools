@@ -1,8 +1,8 @@
 "use client";
 
 import { ReactNode, useEffect, useState } from "react";
-import Sidebar from "@/app/components/Sidebar";
-import Topbar from "@/app/components/Topbar";
+import Sidebar from "@/app/components/Sidebar.tsx";
+import Topbar from "@/app/components/Topbar.tsx";
 import { useSidebarStore } from "@/app/store/useSidebarStore.ts";
 import { useAuthStore } from "@/app/store/useAuthStore.ts";
 import { useRouter } from "next/navigation";

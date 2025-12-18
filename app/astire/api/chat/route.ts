@@ -2,7 +2,7 @@
 // Purpose: Handles chat messages, AI responses via OpenAI, and auto-executable actions for sessions.
 
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { prisma } from "@/lib/db.ts";
 import { z } from "zod";
 import OpenAI from "openai";
 

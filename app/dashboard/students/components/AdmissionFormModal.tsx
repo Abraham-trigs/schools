@@ -4,7 +4,7 @@
 import { useState, Fragment } from "react";
 import { Dialog, Transition } from "@headlessui/react";
 import { X } from "lucide-react";
-import MultiStepAdmissionForm from "@/app/admission/components/steps/MultiStepAdmissionForm";
+import MultiStepAdmissionForm from "@/app/admission/components/steps/MultiStepAdmissionForm.tsx";
 
 // ------------------------------------------------------------------------
 // Purpose:

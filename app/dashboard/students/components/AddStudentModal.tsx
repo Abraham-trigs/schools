@@ -8,8 +8,8 @@ import {
   DialogTitle,
 } from "@headlessui/react";
 import clsx from "clsx";
-import { useClassesStore } from "@/app/store/useClassesStore";
-import { useStudentStore } from "@/app/store/useStudentStore";
+import { useClassesStore } from "@/app/store/useClassesStore.ts";
+import { useStudentStore } from "@/app/store/useStudentStore.ts";
 
 interface AddStudentModalProps {
   isOpen: boolean;

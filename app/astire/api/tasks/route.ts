@@ -2,7 +2,6 @@
 // Purpose: List and create Tasks for Abraham
 
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
 import { z } from "zod";
 
 const currentAbrahamId = "hardcoded-abraham-id";

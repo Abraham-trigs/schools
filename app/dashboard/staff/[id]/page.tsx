@@ -6,9 +6,9 @@
 import React, { useEffect, useState } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { ArrowLeft, Edit, Trash2 } from "lucide-react";
-import { Staff, useStaffStore } from "@/app/store/useStaffStore";
-import EditStaffModal from "../components/EditStaffModal";
-import ConfirmDeleteModal from "../components/ConfirmDeleteModal";
+import { Staff, useStaffStore } from "@/app/store/useStaffStore.ts";
+import EditStaffModal from "../components/EditStaffModal.tsx";
+import ConfirmDeleteModal from "../components/ConfirmDeleteModal.tsx";
 
 export default function StaffDetailPage() {
   const { id } = useParams();

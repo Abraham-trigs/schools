@@ -44,22 +44,28 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
   try {
     const schoolAccount = await SchoolAccount.init();
     if (!schoolAccount) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
     if (!canModifyExam(schoolAccount.role)) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
     const body = await req.json();
     const parsed = ExamUpdateSchema.parse(body);
 
-    const exam = await prisma.exam.update({
-      where: { id: params.id },
-      data: parsed,
-      include: { student: true, subject: true },
+    const updated = await prisma.$transaction(async (tx) => {
+      const exam = await tx.exam.findUnique({
+        where: { id: params.id },
+        include: { student: true, subject: true },
+      });
+
+      if (!exam || exam.student.schoolId !== schoolAccount.schoolId)
+        throw new Error("Exam not found or does not belong to your school");
+
+      return tx.exam.update({
+        where: { id: params.id },
+        data: parsed,
+        include: { student: true, subject: true },
+      });
     });
 
-    if (exam.student.schoolId !== schoolAccount.schoolId)
-      return NextResponse.json({ error: "Exam does not belong to your school" }, { status: 403 });
-
-    return NextResponse.json({ data: exam });
+    return NextResponse.json({ data: updated });
   } catch (err: any) {
     if (err instanceof z.ZodError) return NextResponse.json({ error: err.flatten() }, { status: 400 });
 
@@ -73,7 +79,6 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
   try {
     const schoolAccount = await SchoolAccount.init();
     if (!schoolAccount) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
     if (!canModifyExam(schoolAccount.role)) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
     const exam = await prisma.exam.findUnique({
@@ -95,20 +100,21 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
 
 /*
 Design reasoning:
-- All exam operations are scoped to the authenticated school via argument-free SchoolAccount.init()
-- PUT and DELETE are restricted to authorized roles (TEACHER, ASSISTANT_TEACHER, EXAM_OFFICER)
-- Zod schema validation ensures safe updates and type normalization
+- All exam operations scoped to authenticated school via argument-free SchoolAccount.init()
+- PUT and DELETE restricted to authorized roles (TEACHER, ASSISTANT_TEACHER, EXAM_OFFICER)
+- PUT uses transaction to prevent cross-school updates
+- Zod validation ensures type safety and input normalization
 
 Structure:
-- GET → fetch a single exam with student and subject
-- PUT → update exam fields with schema validation
-- DELETE → remove exam if user is authorized and school-scoped
+- GET → fetch single exam with student and subject
+- PUT → update exam safely, transactional
+- DELETE → remove exam if user authorized and school-scoped
 
 Implementation guidance:
-- Frontend can query, update, or delete exams safely with role-based checks
+- Frontend can safely query, update, or delete exams with role checks
 - Returns consistent error shapes: 401, 403, 404, 400, 500
 
 Scalability insight:
-- Adding new roles or additional exam fields requires only schema updates
-- Multi-tenant safe and production-ready; can integrate audit logs or history tracking
+- Adding new roles or exam fields only requires schema updates
+- Multi-tenant safe; supports future audit logs or history tracking
 */

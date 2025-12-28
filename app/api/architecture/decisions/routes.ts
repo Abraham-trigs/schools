@@ -31,7 +31,7 @@ const querySchema = z.object({
   status: z.enum(["PROPOSED", "ACCEPTED", "IMPLEMENTED", "SUPERSEDED"]).optional(),
 });
 
-// -------------------- Recursive Helpers --------------------
+// -------------------- Recursive Helper --------------------
 async function getDecisionChain(id: string, tenantId: string, visited = new Set<string>()) {
   if (visited.has(id)) return null;
   visited.add(id);
@@ -53,11 +53,7 @@ async function getDecisionChain(id: string, tenantId: string, visited = new Set<
     if (chain) next.push(chain);
   }
 
-  return {
-    ...decision,
-    supersedes: previous,
-    supersededBy: next,
-  };
+  return { ...decision, supersedes: previous, supersededBy: next };
 }
 
 // -------------------- GET /api/decisions --------------------
@@ -69,26 +65,28 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const query = querySchema.parse(Object.fromEntries(searchParams.entries()));
 
-    const page = Number(query.page || 1);
-    const perPage = Number(query.perPage || 10);
+    const page = Math.max(Number(query.page ?? 1), 1);
+    const perPage = Math.max(Number(query.perPage ?? 10), 1);
 
     const where: any = { tenantId: account.tenantId };
     if (query.search) where.title = { contains: query.search, mode: "insensitive" };
     if (query.status) where.status = query.status;
 
-    const total = await prisma.decisionRecord.count({ where });
-
-    const decisions = await prisma.decisionRecord.findMany({
-      where,
-      skip: (page - 1) * perPage,
-      take: perPage,
-      orderBy: { createdAt: "desc" },
-      include: { supersedes: true, supersededBy: true },
-    });
+    const [total, decisions] = await prisma.$transaction([
+      prisma.decisionRecord.count({ where }),
+      prisma.decisionRecord.findMany({
+        where,
+        skip: (page - 1) * perPage,
+        take: perPage,
+        orderBy: { createdAt: "desc" },
+        include: { supersedes: true, supersededBy: true },
+      }),
+    ]);
 
     return NextResponse.json({ decisions, total, page, perPage });
   } catch (err: any) {
-    if (err instanceof z.ZodError) return NextResponse.json({ error: err.errors }, { status: 400 });
+    if (err instanceof z.ZodError)
+      return NextResponse.json({ error: err.errors }, { status: 400 });
     return NextResponse.json({ error: err.message || "Server error" }, { status: 500 });
   }
 }
@@ -121,7 +119,8 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json(newDecision, { status: 201 });
   } catch (err: any) {
-    if (err instanceof z.ZodError) return NextResponse.json({ error: err.errors }, { status: 400 });
+    if (err instanceof z.ZodError)
+      return NextResponse.json({ error: err.errors }, { status: 400 });
     return NextResponse.json({ error: err.message || "Failed to create decision" }, { status: 500 });
   }
 }
@@ -147,7 +146,8 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 
     return NextResponse.json(updated);
   } catch (err: any) {
-    if (err instanceof z.ZodError) return NextResponse.json({ error: err.errors }, { status: 400 });
+    if (err instanceof z.ZodError)
+      return NextResponse.json({ error: err.errors }, { status: 400 });
     return NextResponse.json({ error: err.message || "Failed to update decision" }, { status: 500 });
   }
 }
@@ -163,7 +163,6 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
       return NextResponse.json({ error: "Decision not found or access denied" }, { status: 404 });
 
     await prisma.decisionRecord.delete({ where: { id: params.id } });
-
     return NextResponse.json({ message: "Decision deleted" });
   } catch (err: any) {
     return NextResponse.json({ error: err.message || "Failed to delete decision" }, { status: 500 });
@@ -176,9 +175,7 @@ export async function GETFullChain(req: NextRequest, { params }: { params: { id:
     const account = await SchoolAccount.init();
     if (!account) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-    const { id } = params;
-
-    const graph = await getDecisionChain(id, account.tenantId);
+    const graph = await getDecisionChain(params.id, account.tenantId);
     if (!graph)
       return NextResponse.json({ error: "Decision not found or access denied" }, { status: 404 });
 
@@ -187,3 +184,28 @@ export async function GETFullChain(req: NextRequest, { params }: { params: { id:
     return NextResponse.json({ error: err.message || "Failed to fetch decision graph" }, { status: 500 });
   }
 }
+
+/*
+Design reasoning:
+- Enforces tenant-scoped CRUD for multi-tenant safety
+- Uses recursive helper for full decision chain
+- Zod validation ensures data integrity
+- SchoolAccount argument-free auth centralizes tenant access
+
+Structure:
+- GET → list decisions with pagination and filters
+- POST → create new decision, optionally superseding previous
+- PATCH → update decision fields/status
+- DELETE → remove decision safely
+- GETFullChain → fetch full recursive decision chain
+
+Implementation guidance:
+- Frontend can query with ?page=&perPage=&search=&status
+- Use POST for creation, PATCH for updates, DELETE for removal
+- Full chain can be visualized recursively using GETFullChain
+
+Scalability insight:
+- Recursive chain supports arbitrarily deep decision hierarchies
+- Additional filters and statuses can be added without changing route structure
+- Multi-tenant enforcement prevents cross-tenant leaks
+*/

@@ -1,33 +1,49 @@
+// app/api/exams/route.ts
+// Purpose: List, search, paginate, and create exams scoped to authenticated school
+
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db.ts";
 import { z } from "zod";
 import { SchoolAccount } from "@/lib/schoolAccount.ts";
 
-// Zod schema for creating exams
+// -------------------- Schemas --------------------
 const ExamCreateSchema = z.object({
   studentId: z.string().cuid(),
   subjectId: z.string().cuid(),
   score: z.preprocess((val) => parseFloat(val as string), z.number()),
   maxScore: z.preprocess((val) => parseFloat(val as string), z.number()),
-  date: z.preprocess((val) => (val ? new Date(val as string) : undefined), z.date().optional()),
+  date: z.preprocess(
+    (val) => (val ? new Date(val as string) : undefined),
+    z.date().optional()
+  ),
 });
 
-// -------------------- GET exams with pagination and search --------------------
+const QuerySchema = z.object({
+  page: z.string().optional(),
+  limit: z.string().optional(),
+  search: z.string().optional(),
+  studentId: z.string().optional(),
+});
+
+// -------------------- GET exams --------------------
 export async function GET(req: NextRequest) {
   try {
     const schoolAccount = await SchoolAccount.init();
-    if (!schoolAccount) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    if (!schoolAccount)
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-    const url = new URL(req.url);
-    const search = url.searchParams.get("search") || "";
-    const studentId = url.searchParams.get("studentId");
-    const page = Number(url.searchParams.get("page") || 1);
-    const limit = Number(url.searchParams.get("limit") || 20);
+    const { searchParams } = new URL(req.url);
+    const query = QuerySchema.parse(Object.fromEntries(searchParams.entries()));
+
+    const page = Math.max(Number(query.page ?? 1), 1);
+    const limit = Math.max(Number(query.limit ?? 20), 1);
     const skip = (page - 1) * limit;
 
-    const where: any = { student: { schoolId: schoolAccount.schoolId } };
-    if (search) where.subject = { name: { contains: search, mode: "insensitive" } };
-    if (studentId) where.studentId = studentId;
+    const where: Parameters<typeof prisma.exam.findMany>[0]["where"] = {
+      student: { schoolId: schoolAccount.schoolId },
+      ...(query.search ? { subject: { name: { contains: query.search, mode: "insensitive" } } } : {}),
+      ...(query.studentId ? { studentId: query.studentId } : {}),
+    };
 
     const [exams, total] = await prisma.$transaction([
       prisma.exam.findMany({
@@ -42,8 +58,11 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({ data: exams, total, page, limit });
   } catch (err: any) {
+    if (err instanceof z.ZodError)
+      return NextResponse.json({ error: err.flatten() }, { status: 400 });
+
     console.error("GET /api/exams error:", err);
-    return NextResponse.json({ error: err.message || "Server error" }, { status: 500 });
+    return NextResponse.json({ error: err?.message || "Server error" }, { status: 500 });
   }
 }
 
@@ -51,16 +70,18 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const schoolAccount = await SchoolAccount.init();
-    if (!schoolAccount) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    if (!schoolAccount)
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
     const body = await req.json();
     const parsed = ExamCreateSchema.parse(body);
 
-    // Check student belongs to school
+    // Ensure student belongs to authenticated school
     const student = await prisma.student.findUnique({
       where: { id: parsed.studentId },
       select: { schoolId: true },
     });
+
     if (!student || student.schoolId !== schoolAccount.schoolId) {
       return NextResponse.json({ error: "Student not found in your school" }, { status: 404 });
     }
@@ -72,10 +93,30 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ data: exam }, { status: 201 });
   } catch (err: any) {
-    if (err instanceof z.ZodError) {
+    if (err instanceof z.ZodError)
       return NextResponse.json({ error: err.flatten() }, { status: 400 });
-    }
+
     console.error("POST /api/exams error:", err);
-    return NextResponse.json({ error: err.message || "Server error" }, { status: 500 });
+    return NextResponse.json({ error: err?.message || "Server error" }, { status: 500 });
   }
 }
+
+/*
+Design reasoning:
+- All operations scoped by school via argument-free SchoolAccount.init()
+- GET supports search, pagination, and student filtering
+- POST ensures students belong to authenticated school for data integrity
+
+Structure:
+- GET → paginated list of exams with filters
+- POST → create a new exam with validated schema
+
+Implementation guidance:
+- Frontend can query ?page=&limit=&search=&studentId=
+- Returns 401, 400, 404, and 500 consistently
+
+Scalability insight:
+- Can add filters for subjectId, date ranges, or grades without changing core logic
+- $transaction ensures consistent count + fetch in GET
+- Schema-driven validation reduces risk of invalid data creation
+*/
